@@ -38,7 +38,13 @@ function describeRefFailures(failures, { total, hasToken }) {
       : "Without a token the extension reads branch names from GitHub's pages, and it couldn't find them there. Add a GitHub token in the extension options, for example the output of gh auth token.",
   };
   const needsOptions = reason === "unauthorized" || reason === "no-repo-access" || (reason === "unreadable" && !hasToken);
-  return { id: `refs:${reason}`, title: "Having trouble stacking pull requests", detail: `${lead} ${fixes[reason]}`, options: needsOptions };
+  return {
+    id: `refs:${reason}`,
+    title: "Having trouble stacking pull requests",
+    detail: `${lead} ${fixes[reason]}`,
+    options: needsOptions,
+    retry: true,
+  };
 }
 
 const TICKET_REASONS = ["no-access", "auth", "rate-limited", "network", "not-found", "other"];

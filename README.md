@@ -34,7 +34,9 @@ The token is kept in the extension's local storage in your browser. It is not sy
 
 Branch names are cached for 5 minutes, so a rebased stack can take that long to regroup.
 
-If some pull requests can't be read, they get a "Branches unknown" header and a notice in the bottom right says why and what to change, such as a rejected or expired token, a token without access to the repository, single sign-on, or GitHub's rate limit. If none can be read, the list is left as GitHub shows it. Dismissing the notice hides that problem until the tab is closed.
+If some pull requests can't be read, they get a "Branches unknown" header and a notice in the bottom right says why and what to change, such as a rejected or expired token, a token without access to the repository, single sign-on, or GitHub's rate limit. If none can be read, the list is left as GitHub shows it. "Try again" retries without reloading, and saving the options retries automatically. Dismissing the notice hides that problem until the tab is closed or the options change.
+
+While branch names are being read, a spinner with the extension's icon shows next to the toggle. If GitHub can't be reached, branch names read in the last day are used instead. After GitHub rejects the token or hits its rate limit, the extension stops calling the API for that page until the limit resets or the options change.
 
 ## Tickets
 

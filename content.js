@@ -3,14 +3,23 @@
   const LIST_PATH = /^\/([^/]+\/[^/]+\/pulls|pulls)(\/|$)/;
   const CACHE_KEY = "prStacks.refs.v2";
   const CACHE_TTL_MS = 5 * 60 * 1000;
+  // Older entries are still used when GitHub can't be reached, and dropped after a day.
+  const STALE_MS = 24 * 60 * 60 * 1000;
+  const FETCH_TIMEOUT_MS = 10 * 1000;
+  // The loader only appears when grouping takes longer than this, so cached pages don't flash it.
+  const LOADER_DELAY_MS = 300;
   const ENABLED_KEY = "prStacks.enabled";
   const MARK = "data-pr-stacks";
 
   let settings = { ...SETTINGS_DEFAULTS };
   let settingsVersion = 0;
   let lastSignature = "";
+  let running = "";
   let applying = false;
   const inflight = new Map();
+  // Set when the API refuses the token in a way that applies to every PR (bad token, SSO, rate limit),
+  // so the rest of the page skips the API instead of repeating the same failing call.
+  let apiBlock = null;
 
   chrome.storage.local.get(SETTINGS_DEFAULTS, (v) => {
     settings = normalizeSettings(v);
@@ -24,6 +33,11 @@
     }
     settings = normalizeSettings(settings);
     settingsVersion++;
+    // New settings deserve a fresh attempt and a fresh notice if it still fails.
+    apiBlock = null;
+    try {
+      sessionStorage.removeItem(DISMISSED_KEY);
+    } catch {}
     schedule();
   });
 
@@ -45,7 +59,9 @@
   const writeCache = (key, refs) => {
     try {
       const cache = readCache();
-      cache[key] = { ...refs, at: Date.now() };
+      const now = Date.now();
+      for (const [k, v] of Object.entries(cache)) if (!(now - v.at < STALE_MS)) delete cache[k];
+      cache[key] = { ...refs, at: now };
       localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
     } catch {}
   };
@@ -86,10 +102,13 @@
   async function fetchRefs(repo, number) {
     let failure = null;
     let reached = false;
-    if (settings.token) {
+    if (apiBlock && apiBlock.resetAt && Date.now() > apiBlock.resetAt) apiBlock = null;
+    if (settings.token && apiBlock) failure = apiBlock;
+    else if (settings.token) {
       try {
         const res = await fetch(`https://api.github.com/repos/${repo}/pulls/${number}`, {
           headers: { Authorization: `Bearer ${settings.token}`, Accept: "application/vnd.github+json" },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
         reached = true;
         if (res.ok) {
@@ -98,6 +117,7 @@
         }
         const reset = Number(res.headers.get("x-ratelimit-reset"));
         failure = { reason: apiReason(res.status, res.headers), resetAt: reset ? reset * 1000 : null };
+        if (["unauthorized", "sso", "rate-limited"].includes(failure.reason)) apiBlock = failure;
       } catch {}
     }
     // Same-origin fetches use the signed-in session, so private repos can work without a token.
@@ -106,6 +126,7 @@
         const res = await fetch(path, {
           credentials: "same-origin",
           headers: { "X-Requested-With": "XMLHttpRequest", Accept: "text/html" },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
         reached = true;
         if (!res.ok) continue;
@@ -156,6 +177,11 @@
         key,
         fetchRefs(repo, number)
           .then((refs) => (writeCache(key, refs), refs))
+          // Branches rarely change, so a stale answer beats no grouping when GitHub can't be read.
+          .catch((err) => {
+            if (hit && Date.now() - hit.at < STALE_MS) return hit;
+            throw err;
+          })
           .finally(() => inflight.delete(key))
       );
     }
@@ -340,7 +366,10 @@
     if (settings.token) headers.Authorization = `Bearer ${settings.token}`;
     let res;
     try {
-      res = await fetch(`https://api.github.com/repos/${repo}/issues/${number}`, { headers });
+      res = await fetch(`https://api.github.com/repos/${repo}/issues/${number}`, {
+        headers,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
     } catch {
       return { error: `GitHub didn't respond for ${ref}`, reason: "network" };
     }
@@ -520,12 +549,80 @@
           b.addEventListener("click", onClick);
           return b;
         };
+        if (p.retry) actions.append(button("Try again", retry));
         if (p.options) actions.append(button("Open options", () => chrome.runtime.sendMessage({ type: "openOptions" })));
         actions.append(button("Dismiss", () => dismiss(p.id)));
         item.append(title, detail, actions);
         return item;
       })
     );
+    applying = wasApplying;
+  }
+
+  // Forgets failures and runs again; cached branches that were read successfully are kept.
+  function retry() {
+    apiBlock = null;
+    problems.clear();
+    lastSignature = "";
+    renderToast();
+    schedule();
+  }
+
+  // The extension's icon inside a spinning ring, beside the toggle, while branches are being read.
+  const LOGO =
+    '<rect x="8" y="8" width="112" height="112" rx="26" fill="#3346c8"/><g transform="translate(22 22) scale(3.5)"><path d="M5 3.5V21.5" stroke="#fff" stroke-opacity=".55" stroke-width="1.6"/><circle cx="5" cy="3.5" r="2.3" fill="#fff"/><circle cx="5" cy="15.5" r="2.3" fill="#fff"/><rect x="5" y="2.6" width="16" height="1.8" rx="0.9" fill="#fff"/><g transform="translate(11 6) scale(0.75)"><path d="M6 0L2 2L6 4L10 2Z" fill="#fff" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/><path d="M2 4.5L6 6.5L10 4.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M2 7L6 9L10 7" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g><rect x="5" y="14.6" width="16" height="1.8" rx="0.9" fill="#fff"/><g transform="translate(11 18.5) scale(0.75)"><path d="M6 0L10 2L6 4L2 2Z" fill="#fff" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></g></g>';
+  let loaderTimer = null;
+
+  // Repeated calls keep the first timer, so a busy page can't keep pushing the loader back.
+  function showLoader() {
+    if (loaderTimer || document.querySelector(`[${MARK}="loader"]`)) return;
+    loaderTimer = setTimeout(() => {
+      loaderTimer = null;
+      if (document.querySelector(`[${MARK}="loader"]`)) return;
+      const wasApplying = applying;
+      applying = true;
+      if (!document.querySelector(`[${MARK}="loader-style"]`)) {
+        const style = document.createElement("style");
+        style.setAttribute(MARK, "loader-style");
+        style.textContent =
+          "@keyframes pr-stacks-spin { to { transform: rotate(360deg); } }" +
+          "@keyframes pr-stacks-pulse { 50% { opacity: .55; } }" +
+          `[${MARK}="loader"] .ring { transform-origin: 50% 50%; animation: pr-stacks-spin .9s linear infinite; }` +
+          `@media (prefers-reduced-motion: reduce) { [${MARK}="loader"] .ring { animation: none; } [${MARK}="loader"] { animation: pr-stacks-pulse 1.6s ease-in-out infinite; } }`;
+        document.head.appendChild(style);
+      }
+      const toggle = document.querySelector(`[${MARK}="toggle"]`);
+      const loader = document.createElement("div");
+      loader.setAttribute(MARK, "loader");
+      loader.setAttribute("role", "status");
+      loader.setAttribute("aria-label", "Grouping pull requests by stack");
+      loader.title = "Grouping pull requests by stack";
+      Object.assign(loader.style, {
+        position: "fixed",
+        bottom: "14px",
+        right: `${16 + (toggle?.offsetWidth || 0) + 8}px`,
+        zIndex: "100",
+        width: "32px",
+        height: "32px",
+      });
+      loader.innerHTML =
+        '<svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">' +
+        '<circle cx="16" cy="16" r="14.5" fill="none" stroke="var(--borderColor-default, #d1d9e0)" stroke-width="2"/>' +
+        '<circle class="ring" cx="16" cy="16" r="14.5" fill="none" stroke="#3346c8" stroke-width="2" stroke-linecap="round" stroke-dasharray="22 70"/>' +
+        `<svg x="6" y="6" width="20" height="20" viewBox="8 8 112 112">${LOGO}</svg></svg>`;
+      document.body.appendChild(loader);
+      applying = wasApplying;
+    }, LOADER_DELAY_MS);
+  }
+
+  function hideLoader() {
+    clearTimeout(loaderTimer);
+    loaderTimer = null;
+    const loader = document.querySelector(`[${MARK}="loader"]`);
+    if (!loader) return;
+    const wasApplying = applying;
+    applying = true;
+    loader.remove();
     applying = wasApplying;
   }
 
@@ -541,6 +638,8 @@
     const signature = `${isEnabled()}|${settingsVersion}|${rows.map((r) => r.key).join(",")}`;
     if (signature === lastSignature && (hasHeaders || !isEnabled())) return;
     lastSignature = signature;
+    // GitHub's page changes often; a run already reading this same list doesn't need a twin.
+    if (signature === running) return;
 
     if (!isEnabled()) {
       applying = true;
@@ -552,8 +651,19 @@
     }
 
     const failures = [];
-    const refs = await mapLimit(rows, 4, (r) => getRefs(r.repo, r.number), failures);
-    if (signature !== lastSignature || !container.isConnected) return;
+    showLoader();
+    running = signature;
+    let refs;
+    try {
+      refs = await mapLimit(rows, 4, (r) => getRefs(r.repo, r.number), failures);
+    } finally {
+      if (running === signature) running = "";
+      // A newer run owns the loader if the page changed while this one was waiting.
+      if (signature === lastSignature) hideLoader();
+    }
+    if (signature !== lastSignature) return;
+    // GitHub re-rendered the list meanwhile; go again on the new one, now mostly from cache.
+    if (!container.isConnected) return schedule();
     setProblem("refs", describeRefFailures(failures, { total: rows.length, hasToken: !!settings.token }));
     ticketFailures.clear();
     issueFailures.clear();
