@@ -3,35 +3,17 @@
   "name": "GitHub PR Stacks",
   "version": "0.2.0",
   "description": "Groups pull requests on GitHub's PR list by stack, ordered bottom to top, with the stack's tickets.",
-  "icons": {
-    "16": "icons/16.png",
-    "48": "icons/48.png",
-    "128": "icons/128.png"
-  },
-  "permissions": [
-    "storage"
-  ],
-  "host_permissions": [
-    "https://github.com/*",
-    "https://api.github.com/*"
-  ],
-  "optional_host_permissions": [
-    "https://*/*"
-  ],
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "permissions": ["storage"],
+  "host_permissions": ["https://github.com/*", "https://api.github.com/*"],
+  "optional_host_permissions": ["https://*/*"],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://github.com/*"
-      ],
-      "js": [
-        "settings.js",
-        "stacks.js",
-        "tickets.js",
-        "content.js"
-      ],
+      "matches": ["https://github.com/*"],
+      "js": ["settings.js", "stacks.js", "tickets.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
