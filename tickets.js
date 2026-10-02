@@ -40,6 +40,62 @@ function stackTickets(members, settings) {
   return keys;
 }
 
+// GitHub issue references, normalized to "owner/repo#12" with a lowercase repo.
+// Titles and bodies: "#12" or "owner/repo#12". Branches: GitHub's own "12-short-title" format,
+// or an "issue-12" / "gh-12" style name.
+function extractIssueRefs(text, repo, { branch = false } = {}) {
+  if (!text) return [];
+  const refs = [];
+  const add = (r, n) => {
+    const ref = `${(r || repo).toLowerCase()}#${Number(n)}`;
+    if (!refs.includes(ref)) refs.push(ref);
+  };
+  if (branch) {
+    const name = text.slice(text.lastIndexOf("/") + 1);
+    const m = /^(\d+)-[a-z]/i.exec(name) || /(?:^|[-_])(?:issues?|gh)[-_]?(\d+)(?!\d)/i.exec(name);
+    if (m) add(null, m[1]);
+    return refs;
+  }
+  for (const m of text.matchAll(/(?<![\w/&#-])(?:([\w.-]+\/[\w.-]+))?#(\d+)(?!\w)/g)) add(m[1], m[2]);
+  return refs;
+}
+
+// Same order of preference as stackTickets. References to the stack's own PRs are left out.
+function stackIssueRefs(members, settings) {
+  const own = new Set(members.map((m) => `${(m.repo || "").toLowerCase()}#${m.number}`));
+  const refs = [];
+  const add = (list) => list.forEach((r) => own.has(r) || refs.includes(r) || refs.push(r));
+  for (const m of members) {
+    if (settings.srcBranch) add(extractIssueRefs(m.head, m.repo, { branch: true }));
+    if (settings.srcTitle) add(extractIssueRefs(m.title, m.repo));
+  }
+  if (!refs.length && settings.srcBody) {
+    for (const m of members) add(extractIssueRefs(m.body, m.repo));
+  }
+  return refs;
+}
+
+// "#12" for an issue in the PR's own repository, the full "owner/repo#12" otherwise.
+function issueLabel(ref, repo) {
+  const [r, n] = ref.split("#");
+  return r === (repo || "").toLowerCase() ? `#${n}` : ref;
+}
+
+function issueUrl(ref) {
+  const [r, n] = ref.split("#");
+  return `https://github.com/${r}/issues/${n}`;
+}
+
+// The first enabled source, in the user's priority order, that finds references in the stack.
+function stackReferences(members, settings) {
+  for (const src of settings.ticketSources || []) {
+    if (!src.enabled) continue;
+    const keys = src.id === "jira" ? stackTickets(members, settings) : src.id === "github" ? stackIssueRefs(members, settings) : [];
+    if (keys.length) return { source: src.id, keys };
+  }
+  return { source: null, keys: [] };
+}
+
 // A stack's fallback description: the bottom PR's title without ticket keys, part numbers
 // or a conventional-commit prefix, since the stack name already carries the scope.
 function describeStack(members, keys) {
@@ -100,5 +156,17 @@ function sharedTitleName(titles) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { DEFAULT_TICKET_PATTERN, parseProjects, extractKeys, stackTickets, describeStack, stackName };
+  module.exports = {
+    DEFAULT_TICKET_PATTERN,
+    parseProjects,
+    extractKeys,
+    stackTickets,
+    extractIssueRefs,
+    stackIssueRefs,
+    issueLabel,
+    issueUrl,
+    stackReferences,
+    describeStack,
+    stackName,
+  };
 }

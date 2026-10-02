@@ -13,7 +13,14 @@ const SETTINGS_DEFAULTS = {
   jiraAuth: "cloud",
   jiraEmail: "",
   jiraToken: "",
+  // Ticket sources in priority order. A stack shows references from the first enabled source that finds any.
+  ticketSources: [
+    { id: "jira", enabled: true },
+    { id: "github", enabled: true },
+  ],
 };
+
+const TICKET_SOURCE_IDS = ["jira", "github"];
 
 // Only Jira Cloud is supported, so older saved trackers (Linear) and sign-in modes (Data Center tokens) fall back.
 function normalizeSettings(s) {
@@ -21,7 +28,20 @@ function normalizeSettings(s) {
     ...s,
     tracker: s.tracker === "jira" ? "jira" : "none",
     jiraAuth: s.jiraAuth === "session" ? "session" : "cloud",
+    ticketSources: normalizeSources(s.ticketSources),
   };
+}
+
+// Keeps the saved order, drops unknown sources and appends any the saved list is missing.
+function normalizeSources(list) {
+  const out = [];
+  for (const src of Array.isArray(list) ? list : []) {
+    if (TICKET_SOURCE_IDS.includes(src?.id) && !out.some((o) => o.id === src.id)) {
+      out.push({ id: src.id, enabled: src.enabled !== false });
+    }
+  }
+  for (const id of TICKET_SOURCE_IDS) if (!out.some((o) => o.id === id)) out.push({ id, enabled: true });
+  return out;
 }
 
 // Jira Cloud sites live on atlassian.net, the only tracker host the manifest can ask for.

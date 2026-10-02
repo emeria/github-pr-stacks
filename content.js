@@ -260,9 +260,11 @@
   }
 
   function addTicketLine(header, unit) {
-    const keys = stackTickets(unit.members, settings);
+    const { source, keys } = stackReferences(unit.members, settings);
+    const repo = unit.members[0].repo;
+    const label = (key) => (source === "github" ? issueLabel(key, repo) : key);
     // A single PR's title is already on the row below, so it only gets a description from the tracker.
-    const fallback = unit.stacked ? describeStack(unit.members, keys) : "";
+    const fallback = unit.stacked ? describeStack(unit.members, [...keys, ...keys.map(label)]) : "";
     if (!keys.length && !fallback) return;
 
     const line = document.createElement("div");
@@ -279,28 +281,41 @@
 
     const draw = (tickets) => {
       line.replaceChildren();
-      keys.forEach((key, i) => {
+      // Issue references are guesses, so ones GitHub doesn't know as issues are dropped quietly.
+      const shown = keys.filter((key) => !tickets?.[key]?.missing);
+      shown.forEach((key, i) => {
         if (i) line.append(", ");
-        const url = tickets?.[key]?.url || ticketUrl(key, settings);
+        const url = tickets?.[key]?.url || (source === "github" ? issueUrl(key) : ticketUrl(key, settings));
         const el = document.createElement(url ? "a" : "span");
         if (url) {
           el.href = url;
           el.target = "_blank";
           el.rel = "noopener noreferrer";
         }
-        el.textContent = key;
+        el.textContent = label(key);
         el.style.fontWeight = "600";
         el.title = tickets?.[key]?.error || tickets?.[key]?.status || "";
         line.append(el);
       });
-      const titles = keys.map((k) => tickets?.[k]?.title).filter(Boolean);
+      const titles = shown.map((k) => tickets?.[k]?.title).filter(Boolean);
       const description = titles.length ? titles.join("; ") : fallback;
-      if (description) line.append(`${keys.length ? "  ·  " : ""}${description}`);
+      if (description) line.append(`${shown.length ? "  ·  " : ""}${description}`);
       line.title = description;
     };
     draw(null);
 
-    if (settings.tracker !== "none" && keys.length) {
+    if (source === "github") {
+      lookupIssues(keys).then((issues) => {
+        if (!line.isConnected) return;
+        for (const [key, t] of Object.entries(issues)) {
+          if (t.error) issueFailures.set(key, { key, error: t.error, reason: t.reason });
+        }
+        setProblem("issues", describeTicketFailures([...issueFailures.values()], "github"));
+        applying = true;
+        draw(issues);
+        applying = false;
+      });
+    } else if (source === "jira" && settings.tracker !== "none") {
       chrome.runtime.sendMessage({ type: "lookupTickets", keys }, (tickets) => {
         if (chrome.runtime.lastError || !tickets || !line.isConnected) return;
         for (const [key, t] of Object.entries(tickets)) {
@@ -312,6 +327,48 @@
         applying = false;
       });
     }
+  }
+
+  // Issue titles come from GitHub's API, with the token when one is saved. Found and missing issues
+  // are cached for 30 minutes; errors are not, so they are retried on the next render.
+  const ISSUE_CACHE_KEY = "prStacks.issues.v1";
+  const ISSUE_TTL_MS = 30 * 60 * 1000;
+
+  async function lookupIssue(ref) {
+    const [repo, number] = ref.split("#");
+    const headers = { Accept: "application/vnd.github+json" };
+    if (settings.token) headers.Authorization = `Bearer ${settings.token}`;
+    let res;
+    try {
+      res = await fetch(`https://api.github.com/repos/${repo}/issues/${number}`, { headers });
+    } catch {
+      return { error: `GitHub didn't respond for ${ref}`, reason: "network" };
+    }
+    if (res.status === 404 || res.status === 410) return { missing: true };
+    if (!res.ok) return { error: `GitHub returned HTTP ${res.status} for ${ref}`, reason: issueReason(apiReason(res.status, res.headers)) };
+    const issue = await res.json();
+    if (issue.pull_request) return { missing: true };
+    return { title: issue.title, status: issue.state, url: issue.html_url };
+  }
+
+  async function lookupIssues(refs) {
+    let cache = {};
+    try {
+      cache = JSON.parse(localStorage.getItem(ISSUE_CACHE_KEY) || "{}");
+    } catch {}
+    const out = {};
+    await Promise.all(
+      refs.map(async (ref) => {
+        const hit = cache[ref];
+        if (hit && Date.now() - hit.at < ISSUE_TTL_MS) return (out[ref] = hit);
+        out[ref] = await lookupIssue(ref);
+        if (!out[ref].error) cache[ref] = { ...out[ref], at: Date.now() };
+      })
+    );
+    try {
+      localStorage.setItem(ISSUE_CACHE_KEY, JSON.stringify(cache));
+    } catch {}
+    return out;
   }
 
   function render(container, rows, units) {
@@ -377,6 +434,7 @@
   // and a dismissed problem stays hidden for the rest of the tab's session.
   const problems = new Map();
   const ticketFailures = new Map();
+  const issueFailures = new Map();
   const DISMISSED_KEY = "prStacks.dismissed";
 
   const dismissed = () => {
@@ -498,7 +556,9 @@
     if (signature !== lastSignature || !container.isConnected) return;
     setProblem("refs", describeRefFailures(failures, { total: rows.length, hasToken: !!settings.token }));
     ticketFailures.clear();
+    issueFailures.clear();
     setProblem("tickets", null);
+    setProblem("issues", null);
     // With nothing read there is nothing to group, so leave GitHub's list as it was and let the toast explain.
     if (failures.length === rows.length) {
       applying = true;

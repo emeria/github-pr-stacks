@@ -40,6 +40,11 @@ If some pull requests can't be read, they get a "Branches unknown" header and a 
 
 Turn on "Ticket references" in the options to add a second line to each stack header with the stack's ticket keys and a short description.
 
+Two sources are supported, and each can be turned off or moved up or down in the options. A stack shows references from the highest-priority source that finds any:
+
+- Jira - keys like `ABC-123`.
+- GitHub Issues - `#123` or `owner/repo#123` in titles and descriptions, and branches named the way GitHub's "Create a branch" names them (`123-fix-login`) or like `issue-123`. Issue titles are read from GitHub's API, with your token if one is saved. References GitHub doesn't know as issues, including pull requests, are left out.
+
 - Keys are found in branch names, then PR titles. PR descriptions are checked only when neither has a key, because descriptions often mention follow-up tickets.
 - Set project keys (for example `DATA, IDEA`) to ignore lookalikes such as `UTF-8`, or supply your own key pattern.
 - Without a tracker, the description is the bottom PR's title with ticket keys and part numbers like `pt1/6` removed. A link template such as `https://example.atlassian.net/browse/{key}` makes the keys clickable.

@@ -16,6 +16,14 @@
       .row input { flex: 1; }
       [hidden] { display: none !important; }
       #status, #testResult { margin-left: 8px; }
+      .sources { list-style: none; padding: 0; margin: 6px 0 12px; border: 1px solid #8884; border-radius: 6px; }
+      .sources li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
+      .sources li + li { border-top: 1px solid #8884; }
+      .sources .rank { width: 1.5em; color: #888; font-variant-numeric: tabular-nums; }
+      .sources label.inline { margin: 0; font-weight: 600; }
+      .sources .hint { flex: 1; margin: 0; }
+      .sources button { padding: 2px 8px; }
+      h3 { font-size: 13px; margin: 16px 0 0; }
     </style>
   </head>
   <body>
@@ -32,11 +40,15 @@
       <legend>Ticket references</legend>
       <label class="inline"><input id="ticketsEnabled" type="checkbox" /> Show the stack's tickets and a short description in its header</label>
       <div id="ticketOptions">
-        <p class="hint">Look for ticket keys in:</p>
+        <p class="hint">Sources, highest priority first. Each stack shows references from the first source that finds any.</p>
+        <ol id="ticketSources" class="sources"></ol>
+
+        <p class="hint">Look for references in:</p>
         <label class="inline"><input id="srcBranch" type="checkbox" /> Branch names</label>
         <label class="inline"><input id="srcTitle" type="checkbox" /> PR titles</label>
         <label class="inline"><input id="srcBody" type="checkbox" /> PR descriptions, when the branches and titles have none</label>
 
+        <h3>Jira keys</h3>
         <label for="ticketProjects">Project keys (optional)</label>
         <input id="ticketProjects" type="text" placeholder="DATA, IDEA" />
         <p class="hint">Only keys from these projects are kept. Leave empty to accept anything shaped like ABC-123.</p>
@@ -51,7 +63,7 @@
     </fieldset>
 
     <fieldset>
-      <legend>Ticket lookup</legend>
+      <legend>Jira lookup</legend>
       <label for="tracker">Fetch ticket titles from</label>
       <select id="tracker">
         <option value="none">Nothing (show keys only)</option>

@@ -1,8 +1,53 @@
 const $ = (id) => document.getElementById(id);
-const fields = Object.keys(SETTINGS_DEFAULTS);
+// ticketSources is an ordered list drawn by renderSources, not a single form field.
+const fields = Object.keys(SETTINGS_DEFAULTS).filter((k) => k !== "ticketSources");
+let sources = normalizeSources(SETTINGS_DEFAULTS.ticketSources);
+
+const SOURCE_INFO = {
+  jira: { name: "Jira", hint: "Keys like ABC-123" },
+  github: { name: "GitHub Issues", hint: "#123, owner/repo#123, or branches like 123-fix-login" },
+};
+
+function renderSources() {
+  const list = $("ticketSources");
+  list.replaceChildren(
+    ...sources.map((src, i) => {
+      const li = document.createElement("li");
+      const rank = document.createElement("span");
+      rank.className = "rank";
+      rank.textContent = `${i + 1}.`;
+      const label = document.createElement("label");
+      label.className = "inline";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.id = `source-${src.id}`;
+      box.checked = src.enabled;
+      box.addEventListener("change", () => (src.enabled = box.checked));
+      label.append(box, ` ${SOURCE_INFO[src.id].name}`);
+      const hint = document.createElement("span");
+      hint.className = "hint";
+      hint.textContent = SOURCE_INFO[src.id].hint;
+      const move = (text, aria, to) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = text;
+        b.setAttribute("aria-label", `${aria} ${SOURCE_INFO[src.id].name}`);
+        b.disabled = to < 0 || to >= sources.length;
+        b.addEventListener("click", () => {
+          [sources[i], sources[to]] = [sources[to], sources[i]];
+          renderSources();
+          $(`source-${src.id}`).focus();
+        });
+        return b;
+      };
+      li.append(rank, label, hint, move("↑", "Move up", i - 1), move("↓", "Move down", i + 1));
+      return li;
+    })
+  );
+}
 
 function read() {
-  const s = {};
+  const s = { ticketSources: sources.map((src) => ({ ...src })) };
   for (const k of fields) {
     const el = $(k);
     s[k] = el.type === "checkbox" ? el.checked : el.value.trim();
@@ -25,6 +70,8 @@ chrome.storage.local.get(SETTINGS_DEFAULTS, (stored) => {
     if (el.type === "checkbox") el.checked = !!s[k];
     else el.value = s[k];
   }
+  sources = s.ticketSources;
+  renderSources();
   sync();
 });
 document.addEventListener("input", sync);
