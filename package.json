@@ -1,0 +1,9 @@
+{
+  "name": "github-pr-stacks",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "build": "node scripts/build.mjs",
+    "lint:firefox": "npx web-ext@8 lint -s dist/firefox"
+  }
+}

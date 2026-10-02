@@ -97,8 +97,18 @@ async function save() {
   }
   // permissions.request must run directly from the click, before any other await.
   const origin = trackerOrigin(s);
-  if (origin && !(await chrome.permissions.request({ origins: [origin] }))) {
-    show($("status"), `Not saved: Chrome access to ${origin} was declined.`);
+  const data = IS_FIREFOX ? dataToSend(s) : [];
+  const request = {
+    ...(origin && { origins: [origin] }),
+    ...(data.length && { data_collection: data }),
+  };
+  if (Object.keys(request).length && !(await (IS_FIREFOX ? browser : chrome).permissions.request(request))) {
+    show(
+      $("status"),
+      data.length
+        ? "Not saved: the browser needs your OK to send your token or Jira details to GitHub or Jira."
+        : `Not saved: browser access to ${origin} was declined.`
+    );
     return false;
   }
   await chrome.storage.local.set(s);

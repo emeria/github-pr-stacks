@@ -97,6 +97,10 @@
     return { container, rows };
   }
 
+  // Firefox content scripts fetch as the extension, without the page's cookies; content.fetch
+  // fetches as the page, so the signed-in fallback works for private repos there too.
+  const pageFetch = typeof content !== "undefined" && typeof content?.fetch === "function" ? content.fetch.bind(content) : fetch;
+
   // Failures carry a reason so the toast can say what to fix. With a token, the API's reason wins,
   // since the page fallback failing too usually has the same cause.
   async function fetchRefs(repo, number) {
@@ -123,7 +127,7 @@
     // Same-origin fetches use the signed-in session, so private repos can work without a token.
     for (const path of [`/${repo}/pull/${number}/hovercard`, `/${repo}/pull/${number}`]) {
       try {
-        const res = await fetch(path, {
+        const res = await pageFetch(path, {
           credentials: "same-origin",
           headers: { "X-Requested-With": "XMLHttpRequest", Accept: "text/html" },
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -605,11 +609,16 @@
         width: "32px",
         height: "32px",
       });
-      loader.innerHTML =
-        '<svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">' +
-        '<circle cx="16" cy="16" r="14.5" fill="none" stroke="var(--borderColor-default, #d1d9e0)" stroke-width="2"/>' +
-        '<circle class="ring" cx="16" cy="16" r="14.5" fill="none" stroke="#3346c8" stroke-width="2" stroke-linecap="round" stroke-dasharray="22 70"/>' +
-        `<svg x="6" y="6" width="20" height="20" viewBox="8 8 112 112">${LOGO}</svg></svg>`;
+      // Parsed as SVG rather than set through innerHTML, which store reviewers flag.
+      const svg = new DOMParser().parseFromString(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">' +
+          '<circle cx="16" cy="16" r="14.5" fill="none" stroke="#d1d9e0" stroke-width="2"/>' +
+          '<circle class="ring" cx="16" cy="16" r="14.5" fill="none" stroke="#3346c8" stroke-width="2" stroke-linecap="round" stroke-dasharray="22 70"/>' +
+          `<svg x="6" y="6" width="20" height="20" viewBox="8 8 112 112">${LOGO}</svg></svg>`,
+        "image/svg+xml"
+      ).documentElement;
+      svg.firstChild.style.stroke = "var(--borderColor-default, #d1d9e0)";
+      loader.appendChild(document.importNode(svg, true));
       document.body.appendChild(loader);
       applying = wasApplying;
     }, LOADER_DELAY_MS);

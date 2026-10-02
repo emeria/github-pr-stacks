@@ -22,6 +22,17 @@ const SETTINGS_DEFAULTS = {
 
 const TICKET_SOURCE_IDS = ["jira", "github"];
 
+// Firefox only: data the user has to agree to send before it leaves the browser, matching the
+// optional data_collection_permissions in the Firefox manifest. Chrome has no such prompt.
+function dataToSend(s) {
+  const data = [];
+  if (s.token || (s.tracker === "jira" && s.jiraAuth === "cloud" && s.jiraToken)) data.push("authenticationInfo");
+  if (s.tracker === "jira") data.push("websiteContent");
+  return data;
+}
+
+const IS_FIREFOX = typeof browser !== "undefined" && typeof browser.runtime?.getBrowserInfo === "function";
+
 // Only Jira Cloud is supported, so older saved trackers (Linear) and sign-in modes (Data Center tokens) fall back.
 function normalizeSettings(s) {
   return {
