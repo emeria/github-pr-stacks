@@ -4,6 +4,8 @@ A Chrome extension that groups the pull request list on github.com by stack. Eac
 
 A PR belongs to a stack when its base branch is another open PR's head branch. That works for stacks made with `gh stack`, Graphite, or by hand.
 
+Every PR gets a header, so GitHub's newest and oldest sorts still apply: each stack sits where its highest-placed PR would be. Stack headers have a stack icon and a blue edge on their rows; single PRs have a pull request icon. A stack header is named from wording all its PR titles share, tried in this order: the same conventional-commit scope (`docs(pass-skills): ...`), the same label before a part number (`skill-port pt1: ...`), or the longest term in every title (`perf-calibration`). A stack whose titles share no wording is named after its bottom PR's branch.
+
 ## Setup
 
 ```sh
@@ -32,6 +34,22 @@ The token is kept in the extension's local storage in your browser. It is not sy
 
 Branch names are cached for 5 minutes, so a rebased stack can take that long to regroup.
 
+## Tickets
+
+Turn on "Ticket references" in the options to add a second line to each stack header with the stack's ticket keys and a short description.
+
+- Keys are found in branch names, then PR titles. PR descriptions are checked only when neither has a key, because descriptions often mention follow-up tickets.
+- Set project keys (for example `DATA, IDEA`) to ignore lookalikes such as `UTF-8`, or supply your own key pattern.
+- Without a tracker, the description is the bottom PR's title with ticket keys and part numbers like `pt1/6` removed. A link template such as `https://example.atlassian.net/browse/{key}` makes the keys clickable.
+
+To show ticket titles instead, choose a tracker under "Ticket lookup":
+
+- Jira Cloud - your Jira URL, account email and an API token from id.atlassian.com/manage-profile/security/api-tokens.
+- Jira Data Center or Server - your Jira URL and a personal access token.
+- Linear - a personal API key.
+
+Saving asks Chrome for access to the tracker's site. Tracker credentials are read only by the extension's background script and sent only to the tracker. Use the Test button to check a key before reloading GitHub. Ticket titles are cached for 30 minutes.
+
 ## Limits
 
 - github.com only. GitHub Enterprise Server hosts are not matched.
@@ -42,5 +60,7 @@ Branch names are cached for 5 minutes, so a rebased stack can take that long to 
 ```sh
 node --test
 ```
+
+Icons are Octicons `stack-16` and `git-pull-request-16` from [primer/octicons](https://github.com/primer/octicons), MIT licensed.
 
 After editing, click the reload icon on the extension's card in `chrome://extensions` and refresh the GitHub tab.

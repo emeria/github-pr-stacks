@@ -1,19 +1,29 @@
 (() => {
   const PULL_PATH = /^\/([^/]+\/[^/]+)\/pull\/(\d+)\/?$/;
   const LIST_PATH = /^\/([^/]+\/[^/]+\/pulls|pulls)(\/|$)/;
-  const CACHE_KEY = "prStacks.refs";
+  const CACHE_KEY = "prStacks.refs.v2";
   const CACHE_TTL_MS = 5 * 60 * 1000;
   const ENABLED_KEY = "prStacks.enabled";
   const MARK = "data-pr-stacks";
 
-  let token = "";
+  let settings = { ...SETTINGS_DEFAULTS };
+  let settingsVersion = 0;
   let lastSignature = "";
   let applying = false;
   const inflight = new Map();
 
-  chrome.storage.local.get({ token: "" }, (v) => (token = v.token || ""));
-  chrome.storage.onChanged.addListener((c) => {
-    if (c.token) token = c.token.newValue || "";
+  chrome.storage.local.get(SETTINGS_DEFAULTS, (v) => {
+    settings = v;
+    settingsVersion++;
+    schedule();
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !Object.keys(changes).some((k) => k in SETTINGS_DEFAULTS)) return;
+    for (const [k, { newValue }] of Object.entries(changes)) {
+      if (k in SETTINGS_DEFAULTS) settings[k] = newValue ?? SETTINGS_DEFAULTS[k];
+    }
+    settingsVersion++;
+    schedule();
   });
 
   const isEnabled = () => {
@@ -65,19 +75,19 @@
       while (row.parentElement !== container) row = row.parentElement;
       if (seen.has(row)) return null;
       seen.add(row);
-      rows.push({ key, repo: e.repo, number: e.number, row });
+      rows.push({ key, repo: e.repo, number: e.number, row, title: e.a.textContent.trim() });
     }
     return { container, rows };
   }
 
   async function fetchRefs(repo, number) {
-    if (token) {
+    if (settings.token) {
       const res = await fetch(`https://api.github.com/repos/${repo}/pulls/${number}`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+        headers: { Authorization: `Bearer ${settings.token}`, Accept: "application/vnd.github+json" },
       });
       if (res.ok) {
         const pr = await res.json();
-        return { head: pr.head.ref, base: pr.base.ref };
+        return { head: pr.head.ref, base: pr.base.ref, title: pr.title, body: pr.body || "" };
       }
     }
     // Same-origin fetches use the signed-in session, so private repos can work without a token.
@@ -176,13 +186,35 @@
     }
   }
 
+  // Octicons stack-16 and git-pull-request-16 (MIT, github.com/primer/octicons).
+  const ICONS = {
+    stack:
+      "M7.122.392a1.75 1.75 0 0 1 1.756 0l5.003 2.902c.83.481.83 1.68 0 2.162L8.878 8.358a1.75 1.75 0 0 1-1.756 0L2.119 5.456a1.251 1.251 0 0 1 0-2.162ZM8.125 1.69a.248.248 0 0 0-.25 0l-4.63 2.685 4.63 2.685a.248.248 0 0 0 .25 0l4.63-2.685ZM1.601 7.789a.75.75 0 0 1 1.025-.273l5.249 3.044a.248.248 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.248 3.044a1.75 1.75 0 0 1-1.756 0L1.874 8.814A.75.75 0 0 1 1.6 7.789Zm0 3.5a.75.75 0 0 1 1.025-.273l5.249 3.044a.248.248 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.248 3.044a1.75 1.75 0 0 1-1.756 0l-5.248-3.044a.75.75 0 0 1-.273-1.025Z",
+    single:
+      "M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z",
+  };
+
+  function icon(name, color) {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("width", "14");
+    svg.setAttribute("height", "14");
+    svg.setAttribute("aria-hidden", "true");
+    svg.style.fill = color;
+    svg.style.flex = "none";
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", ICONS[name]);
+    svg.appendChild(path);
+    return svg;
+  }
+
   function makeHeader(container, unit) {
     const h = document.createElement(container.tagName === "UL" || container.tagName === "OL" ? "li" : "div");
     h.setAttribute(MARK, "header");
-    h.textContent = `Stack of ${unit.members.length} onto ${unit.base}  ·  bottom to top`;
     Object.assign(h.style, {
       listStyle: "none",
-      padding: "6px 16px",
+      padding: unit.stacked ? "6px 16px" : "3px 16px",
       fontSize: "12px",
       fontWeight: "600",
       color: "var(--fgColor-muted, #59636e)",
@@ -190,7 +222,79 @@
       borderTop: "1px solid var(--borderColor-default, #d1d9e0)",
       borderBottom: "1px solid var(--borderColor-muted, #d1d9e0b3)",
     });
+
+    const summary = document.createElement("div");
+    Object.assign(summary.style, { display: "flex", alignItems: "center", gap: "6px" });
+    if (unit.stacked) {
+      summary.append(icon("stack", "var(--fgColor-accent, #0969da)"));
+      const name = stackName(unit.members);
+      if (name) {
+        const strong = document.createElement("span");
+        strong.textContent = name;
+        strong.style.color = "var(--fgColor-default, #1f2328)";
+        summary.append(strong, "  ·  ");
+      }
+      summary.append(`Stack of ${unit.members.length} onto ${unit.base}  ·  bottom to top`);
+    } else {
+      summary.append(icon("single", "var(--fgColor-muted, #59636e)"), `Single PR onto ${unit.base}`);
+    }
+    h.appendChild(summary);
+
+    if (settings.ticketsEnabled) addTicketLine(h, unit);
     return h;
+  }
+
+  function addTicketLine(header, unit) {
+    const keys = stackTickets(unit.members, settings);
+    // A single PR's title is already on the row below, so it only gets a description from the tracker.
+    const fallback = unit.stacked ? describeStack(unit.members, keys) : "";
+    if (!keys.length && !fallback) return;
+
+    const line = document.createElement("div");
+    Object.assign(line.style, {
+      marginTop: "2px",
+      paddingLeft: "20px",
+      fontWeight: "400",
+      color: "var(--fgColor-default, #1f2328)",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    });
+    header.appendChild(line);
+
+    const draw = (tickets) => {
+      line.replaceChildren();
+      keys.forEach((key, i) => {
+        if (i) line.append(", ");
+        const url = tickets?.[key]?.url || ticketUrl(key, settings);
+        const el = document.createElement(url ? "a" : "span");
+        if (url) {
+          el.href = url;
+          el.target = "_blank";
+          el.rel = "noopener noreferrer";
+        }
+        el.textContent = key;
+        el.style.fontWeight = "600";
+        el.title = tickets?.[key]?.error || tickets?.[key]?.status || "";
+        line.append(el);
+      });
+      const titles = keys.map((k) => tickets?.[k]?.title).filter(Boolean);
+      const description = titles.length ? titles.join("; ") : fallback;
+      if (description) line.append(`${keys.length ? "  ·  " : ""}${description}`);
+      line.title = description;
+    };
+    draw(null);
+
+    if (settings.tracker !== "none" && keys.length) {
+      chrome.runtime.sendMessage({ type: "lookupTickets", keys }, (tickets) => {
+        if (chrome.runtime.lastError || !tickets || !line.isConnected) return;
+        const errors = Object.entries(tickets).filter(([, t]) => t.error);
+        if (errors.length) console.info("[pr-stacks] Ticket lookup:", errors.map(([, t]) => t.error).join("; "));
+        applying = true;
+        draw(tickets);
+        applying = false;
+      });
+    }
   }
 
   function render(container, rows, units) {
@@ -205,11 +309,9 @@
 
     let order = 0;
     for (const unit of units) {
-      if (unit.stacked) {
-        const h = makeHeader(container, unit);
-        h.style.order = String(order++);
-        container.appendChild(h);
-      }
+      const h = makeHeader(container, unit);
+      h.style.order = String(order++);
+      container.appendChild(h);
       for (const pr of unit.members) {
         const row = rowByKey.get(pr.key);
         row.setAttribute(`${MARK}-row`, "");
@@ -262,7 +364,7 @@
     const { container, rows } = found;
 
     const hasHeaders = !!container.querySelector(`:scope > [${MARK}="header"]`);
-    const signature = `${isEnabled()}|${rows.map((r) => r.key).join(",")}`;
+    const signature = `${isEnabled()}|${settingsVersion}|${rows.map((r) => r.key).join(",")}`;
     if (signature === lastSignature && (hasHeaders || !isEnabled())) return;
     lastSignature = signature;
 
@@ -278,7 +380,7 @@
     if (failures.length && !hinted) {
       hinted = true;
       console.info(
-        `[pr-stacks] Could not read branches for ${failures.length} PRs${token ? " (token set but rejected?)" : ""}. ` +
+        `[pr-stacks] Could not read branches for ${failures.length} PRs${settings.token ? " (token set but rejected?)" : ""}. ` +
           "Set a token in the extension options, for example the output of `gh auth token`."
       );
     }
@@ -287,7 +389,16 @@
     const prs = [];
     rows.forEach((r, index) => {
       const ref = refs[index];
-      prs.push({ key: r.key, repo: r.repo, number: r.number, index, head: ref?.head ?? `?${r.key}`, base: ref?.base ?? "?" });
+      prs.push({
+        key: r.key,
+        repo: r.repo,
+        number: r.number,
+        index,
+        head: ref?.head ?? `?${r.key}`,
+        base: ref?.base ?? "?",
+        title: ref?.title || r.title,
+        body: ref?.body || "",
+      });
     });
     const units = buildUnits(prs);
     applying = true;
