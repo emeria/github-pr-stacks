@@ -44,3 +44,7 @@ node --test
 ```
 
 After editing, click the reload icon on the extension's card in `chrome://extensions` and refresh the GitHub tab.
+
+## License
+
+MIT with the [Commons Clause](https://commonsclause.com/) condition. You can use, modify and fork it, but you can't sell it or a product or service built substantially on it, and forks must keep this condition. See [LICENSE](LICENSE).
