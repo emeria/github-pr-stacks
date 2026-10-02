@@ -4,6 +4,20 @@ A Chrome extension that groups the pull request list on github.com by stack. Eac
 
 A PR belongs to a stack when its base branch is another open PR's head branch. That works for stacks made with `gh stack`, Graphite, or by hand.
 
+Each stack header ends with a progress bar: how many of its PRs are approved, and one segment per PR from bottom to top, coloured by where that PR stands. The bar is the same width on every stack, so they line up. When a PR is in more than one state, the first that applies wins:
+
+| Colour | State |
+|---|---|
+| Purple | Merged |
+| Grey | Draft, or closed without merging (lighter grey) |
+| Red | Checks failing |
+| Yellow | Changes requested |
+| Orange | Checks running |
+| Green | Approved |
+| Blue | Ready for review |
+
+With a token, states come from one GitHub API request per page. Without one, they're read from GitHub's list, which shows "Approved" and "Changes requested" only once a PR has reviews. Hover a segment for its PR number and state.
+
 Every PR gets a header, so GitHub's newest and oldest sorts still apply: each stack sits where its highest-placed PR would be. Stack headers have a stack icon and a blue edge on their rows; single PRs have a pull request icon. A stack header is named from wording all its PR titles share, tried in this order: the same conventional-commit scope (`docs(pass-skills): ...`), the same label before a part number (`skill-port pt1: ...`), or the longest term in every title (`perf-calibration`). A stack whose titles share no wording is named after its bottom PR's branch.
 
 ## Setup

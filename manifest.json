@@ -12,7 +12,7 @@
   "content_scripts": [
     {
       "matches": ["https://github.com/*"],
-      "js": ["settings.js", "stacks.js", "tickets.js", "problems.js", "content.js"],
+      "js": ["settings.js", "stacks.js", "tickets.js", "problems.js", "status.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
