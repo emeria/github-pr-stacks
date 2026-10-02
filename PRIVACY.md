@@ -6,7 +6,9 @@ Effective date: October 2, 2026
 
 ## Summary
 
-The extension has no server. Everything it stores stays in your browser. It sends data only to GitHub and, if you set it up, your Jira Cloud site. It does not collect analytics, show ads, or sell or share data with anyone.
+**We don't collect your data, and we never sell it.**
+
+The extension has no server, and the developer never receives anything from it. Everything it stores stays in your browser. It talks only to GitHub and, if you set it up, your own Jira Cloud site, to show your pull requests and tickets. It has no analytics, no tracking and no ads, and it doesn't share data with anyone.
 
 ## What the extension stores
 
@@ -17,24 +19,24 @@ All of the following is kept in your browser's local extension storage. It is no
 - **Display settings**, such as whether ticket references are shown, project keys, a key pattern and a link template.
 - **Cached ticket details**: ticket titles, statuses and links fetched from Jira, kept for up to 30 minutes.
 
-The extension also caches pull request branch names, titles and descriptions in github.com's local storage in your browser for up to 5 minutes, so the list does not have to be re-read on every page load. It also remembers whether grouping is turned on.
+The extension also keeps a short-lived cache in github.com's local storage in your browser, so the list does not have to be re-read on every page load: pull request branch names, titles and descriptions (reused for up to a day if GitHub can't be reached), and GitHub issue titles (up to 30 minutes). It also remembers whether grouping is turned on and which notices you dismissed.
 
 ## Where data is sent
 
-- **api.github.com**: requests for pull request details, sent with your GitHub token if you saved one.
+- **api.github.com**: requests for pull request details and for the titles of GitHub issues the pull requests mention, sent with your GitHub token if you saved one.
 - **github.com**: requests for pull request pages, using your existing signed-in session when no token is set.
-- **Your Jira Cloud site** (on atlassian.net), only if you set one up. The extension sends the ticket keys it found and your Jira credentials, and receives ticket titles and statuses. Chrome asks for your permission before the extension can contact your Jira site.
+- **Your Jira Cloud site** (on atlassian.net), only if you set one up. The extension sends the ticket keys it found and your Jira credentials, and receives ticket titles and statuses. Your browser asks for your permission before the extension can contact your Jira site.
 
-Data is not sent anywhere else.
+Data is not sent anywhere else. In Firefox, the extension declares that it collects no data, and asks for your consent before sending a saved token or Jira details to GitHub or Jira.
 
 ## What the extension does not do
 
 - It does not collect personal information, browsing history or usage analytics.
 - It does not run on sites other than github.com and the Jira site you choose.
-- It does not sell, rent or transfer your data to third parties.
+- It does not sell, rent or transfer your data to anyone.
 - It does not use your data for advertising, creditworthiness or any purpose other than the extension's single feature.
 
-The use of information received from Google APIs and the browser adheres to the [Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/user-data-faq), including the Limited Use requirements.
+The extension's handling of data complies with the [Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/user-data-faq), including the Limited Use requirements, and with [Mozilla's add-on policies](https://extensionworkshop.com/documentation/publish/add-on-policies/).
 
 ## Removing your data
 
