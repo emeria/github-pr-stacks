@@ -60,10 +60,24 @@ Saving asks Chrome for access to your Jira site. Jira credentials are read only 
 - github.com only. GitHub Enterprise Server hosts are not matched.
 - Only PRs on the current page are grouped. A stack split across pages is grouped per page.
 
+## Firefox
+
+The same code runs in Firefox 140 and later, and Firefox for Android 142 and later. Firefox needs a slightly different manifest, so build it first:
+
+```sh
+npm run build
+```
+
+Then open `about:debugging#/runtime/this-firefox`, click "Load Temporary Add-on" and choose `dist/firefox/manifest.json`. Temporary add-ons are removed when Firefox closes.
+
+Firefox shows what data an add-on sends before it sends it. This one sends nothing at install. Saving a GitHub token or Jira details asks for your OK to send them to GitHub or Jira, and they're not saved without it.
+
 ## Development
 
 ```sh
-node --test
+npm test              # unit tests
+npm run build         # dist/chrome, dist/firefox and a store zip for each
+npm run lint:firefox  # Mozilla's add-on linter, after a build
 ```
 
 Icons are Octicons `stack-16` and `git-pull-request-16` from [primer/octicons](https://github.com/primer/octicons), MIT licensed.

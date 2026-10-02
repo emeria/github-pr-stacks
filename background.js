@@ -1,5 +1,6 @@
 // Tracker lookups run here so tracker credentials never reach the GitHub page.
-importScripts("settings.js");
+// Chrome runs this as a service worker. Firefox runs it as an event page that already loaded settings.js.
+if (typeof importScripts === "function") importScripts("settings.js");
 
 const TICKET_CACHE_KEY = "ticketCache";
 const TICKET_TTL_MS = 30 * 60 * 1000;
