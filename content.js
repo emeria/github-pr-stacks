@@ -80,27 +80,39 @@
     return { container, rows };
   }
 
+  // Failures carry a reason so the toast can say what to fix. With a token, the API's reason wins,
+  // since the page fallback failing too usually has the same cause.
   async function fetchRefs(repo, number) {
+    let failure = null;
+    let reached = false;
     if (settings.token) {
-      const res = await fetch(`https://api.github.com/repos/${repo}/pulls/${number}`, {
-        headers: { Authorization: `Bearer ${settings.token}`, Accept: "application/vnd.github+json" },
-      });
-      if (res.ok) {
-        const pr = await res.json();
-        return { head: pr.head.ref, base: pr.base.ref, title: pr.title, body: pr.body || "" };
-      }
+      try {
+        const res = await fetch(`https://api.github.com/repos/${repo}/pulls/${number}`, {
+          headers: { Authorization: `Bearer ${settings.token}`, Accept: "application/vnd.github+json" },
+        });
+        reached = true;
+        if (res.ok) {
+          const pr = await res.json();
+          return { head: pr.head.ref, base: pr.base.ref, title: pr.title, body: pr.body || "" };
+        }
+        const reset = Number(res.headers.get("x-ratelimit-reset"));
+        failure = { reason: apiReason(res.status, res.headers), resetAt: reset ? reset * 1000 : null };
+      } catch {}
     }
     // Same-origin fetches use the signed-in session, so private repos can work without a token.
     for (const path of [`/${repo}/pull/${number}/hovercard`, `/${repo}/pull/${number}`]) {
-      const res = await fetch(path, {
-        credentials: "same-origin",
-        headers: { "X-Requested-With": "XMLHttpRequest", Accept: "text/html" },
-      });
-      if (!res.ok) continue;
-      const refs = parseRefs(await res.text());
-      if (refs) return refs;
+      try {
+        const res = await fetch(path, {
+          credentials: "same-origin",
+          headers: { "X-Requested-With": "XMLHttpRequest", Accept: "text/html" },
+        });
+        reached = true;
+        if (!res.ok) continue;
+        const refs = parseRefs(await res.text());
+        if (refs) return refs;
+      } catch {}
     }
-    throw new Error(`No branch refs found for ${repo}#${number}`);
+    throw { repo, number, ...(failure || { reason: reached ? "unreadable" : "network" }) };
   }
 
   function parseRefs(html) {
@@ -149,10 +161,8 @@
     return inflight.get(key);
   }
 
-  let failures = [];
-  let hinted = false;
-
-  async function mapLimit(items, limit, fn) {
+  // Collects each item's failure into the caller's list, so overlapping runs never share one.
+  async function mapLimit(items, limit, fn, failures) {
     const out = new Array(items.length);
     let i = 0;
     const worker = async () => {
@@ -161,7 +171,7 @@
         try {
           out[n] = await fn(items[n]);
         } catch (err) {
-          failures.push(err.message);
+          failures.push(err?.reason ? err : { reason: "unreadable", repo: items[n].repo });
           out[n] = null;
         }
       }
@@ -186,12 +196,14 @@
     }
   }
 
-  // Octicons stack-16 and git-pull-request-16 (MIT, github.com/primer/octicons).
+  // Octicons stack-16, git-pull-request-16 and alert-16 (MIT, github.com/primer/octicons).
   const ICONS = {
     stack:
       "M7.122.392a1.75 1.75 0 0 1 1.756 0l5.003 2.902c.83.481.83 1.68 0 2.162L8.878 8.358a1.75 1.75 0 0 1-1.756 0L2.119 5.456a1.251 1.251 0 0 1 0-2.162ZM8.125 1.69a.248.248 0 0 0-.25 0l-4.63 2.685 4.63 2.685a.248.248 0 0 0 .25 0l4.63-2.685ZM1.601 7.789a.75.75 0 0 1 1.025-.273l5.249 3.044a.248.248 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.248 3.044a1.75 1.75 0 0 1-1.756 0L1.874 8.814A.75.75 0 0 1 1.6 7.789Zm0 3.5a.75.75 0 0 1 1.025-.273l5.249 3.044a.248.248 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.248 3.044a1.75 1.75 0 0 1-1.756 0l-5.248-3.044a.75.75 0 0 1-.273-1.025Z",
     single:
       "M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z",
+    alert:
+      "M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z",
   };
 
   function icon(name, color) {
@@ -235,6 +247,8 @@
         summary.append(strong, "  ·  ");
       }
       summary.append(`Stack of ${unit.members.length} onto ${unit.base}  ·  bottom to top`);
+    } else if (unit.base === "?") {
+      summary.append(icon("alert", "var(--fgColor-attention, #9a6700)"), "Branches unknown, not grouped");
     } else {
       summary.append(icon("single", "var(--fgColor-muted, #59636e)"), `Single PR onto ${unit.base}`);
     }
@@ -288,8 +302,10 @@
     if (settings.tracker !== "none" && keys.length) {
       chrome.runtime.sendMessage({ type: "lookupTickets", keys }, (tickets) => {
         if (chrome.runtime.lastError || !tickets || !line.isConnected) return;
-        const errors = Object.entries(tickets).filter(([, t]) => t.error);
-        if (errors.length) console.info("[pr-stacks] Ticket lookup:", errors.map(([, t]) => t.error).join("; "));
+        for (const [key, t] of Object.entries(tickets)) {
+          if (t.error) ticketFailures.set(key, { key, error: t.error, reason: t.reason });
+        }
+        setProblem("tickets", describeTicketFailures([...ticketFailures.values()], settings.tracker));
         applying = true;
         draw(tickets);
         applying = false;
@@ -356,8 +372,107 @@
     btn.textContent = `Group by stack: ${isEnabled() ? "on" : "off"}`;
   }
 
+  // One toast above the toggle lists current problems. Each slot (refs, tickets, crash) holds at most one,
+  // and a dismissed problem stays hidden for the rest of the tab's session.
+  const problems = new Map();
+  const ticketFailures = new Map();
+  const DISMISSED_KEY = "prStacks.dismissed";
+
+  const dismissed = () => {
+    try {
+      return new Set(JSON.parse(sessionStorage.getItem(DISMISSED_KEY) || "[]"));
+    } catch {
+      return new Set();
+    }
+  };
+  const dismiss = (id) => {
+    try {
+      sessionStorage.setItem(DISMISSED_KEY, JSON.stringify([...dismissed(), id]));
+    } catch {}
+    renderToast();
+  };
+
+  function setProblem(slot, problem) {
+    const before = problems.get(slot)?.id;
+    if (problem) problems.set(slot, problem);
+    else problems.delete(slot);
+    if (before !== problem?.id) renderToast();
+  }
+
+  function renderToast() {
+    const wasApplying = applying;
+    applying = true;
+    let toast = document.querySelector(`[${MARK}="toast"]`);
+    const hidden = dismissed();
+    const shown = LIST_PATH.test(location.pathname) ? [...problems.values()].filter((p) => !hidden.has(p.id)) : [];
+    if (!shown.length) {
+      toast?.remove();
+      applying = wasApplying;
+      return;
+    }
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.setAttribute(MARK, "toast");
+      toast.setAttribute("role", "status");
+      Object.assign(toast.style, {
+        position: "fixed",
+        right: "16px",
+        bottom: "56px",
+        zIndex: "100",
+        width: "min(380px, calc(100vw - 32px))",
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+        padding: "12px 14px",
+        borderRadius: "8px",
+        font: "12px/1.5 -apple-system, BlinkMacSystemFont, sans-serif",
+        color: "var(--fgColor-default, #1f2328)",
+        background: "var(--overlay-bgColor, var(--bgColor-default, #fff))",
+        border: "1px solid var(--borderColor-default, #d1d9e0)",
+        boxShadow: "var(--shadow-floating-small, 0 6px 12px -3px #25292e33)",
+      });
+      document.body.appendChild(toast);
+    }
+    toast.replaceChildren(
+      ...shown.map((p) => {
+        const item = document.createElement("div");
+        const title = document.createElement("div");
+        Object.assign(title.style, { display: "flex", alignItems: "center", gap: "6px", fontWeight: "600", fontSize: "13px" });
+        title.append(icon("alert", "var(--fgColor-attention, #9a6700)"), p.title);
+        const detail = document.createElement("div");
+        Object.assign(detail.style, { marginTop: "2px", paddingLeft: "20px", color: "var(--fgColor-muted, #59636e)" });
+        detail.textContent = p.detail;
+        const actions = document.createElement("div");
+        Object.assign(actions.style, { display: "flex", gap: "8px", marginTop: "8px", paddingLeft: "20px" });
+        const button = (label, onClick) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = label;
+          Object.assign(b.style, {
+            padding: "3px 10px",
+            borderRadius: "6px",
+            font: "inherit",
+            fontWeight: "500",
+            cursor: "pointer",
+            color: "var(--fgColor-default, #1f2328)",
+            background: "var(--button-default-bgColor-rest, #f6f8fa)",
+            border: "1px solid var(--borderColor-default, #d1d9e0)",
+          });
+          b.addEventListener("click", onClick);
+          return b;
+        };
+        if (p.options) actions.append(button("Open options", () => chrome.runtime.sendMessage({ type: "openOptions" })));
+        actions.append(button("Dismiss", () => dismiss(p.id)));
+        item.append(title, detail, actions);
+        return item;
+      })
+    );
+    applying = wasApplying;
+  }
+
   async function run() {
     renderToggle();
+    renderToast();
     if (!LIST_PATH.test(location.pathname)) return;
     const found = findRows();
     if (!found) return;
@@ -372,19 +487,24 @@
       applying = true;
       clear(container);
       applying = false;
+      problems.clear();
+      renderToast();
       return;
     }
 
-    failures = [];
-    const refs = await mapLimit(rows, 4, (r) => getRefs(r.repo, r.number));
-    if (failures.length && !hinted) {
-      hinted = true;
-      console.info(
-        `[pr-stacks] Could not read branches for ${failures.length} PRs${settings.token ? " (token set but rejected?)" : ""}. ` +
-          "Set a token in the extension options, for example the output of `gh auth token`."
-      );
-    }
+    const failures = [];
+    const refs = await mapLimit(rows, 4, (r) => getRefs(r.repo, r.number), failures);
     if (signature !== lastSignature || !container.isConnected) return;
+    setProblem("refs", describeRefFailures(failures, { total: rows.length, hasToken: !!settings.token }));
+    ticketFailures.clear();
+    setProblem("tickets", null);
+    // With nothing read there is nothing to group, so leave GitHub's list as it was and let the toast explain.
+    if (failures.length === rows.length) {
+      applying = true;
+      clear(container);
+      applying = false;
+      return;
+    }
 
     const prs = [];
     rows.forEach((r, index) => {
@@ -409,7 +529,20 @@
   let timer = null;
   function schedule() {
     clearTimeout(timer);
-    timer = setTimeout(run, 250);
+    timer = setTimeout(safeRun, 250);
+  }
+
+  // A bug or a GitHub page change should show up once in the toast, not as an error on every DOM change.
+  async function safeRun() {
+    try {
+      await run();
+    } catch (err) {
+      setProblem("crash", {
+        id: `crash:${err?.message}`,
+        title: "Having trouble stacking pull requests",
+        detail: `Something went wrong while grouping this page: ${err?.message || err}. Reload the page; if it keeps happening, GitHub may have changed its pages.`,
+      });
+    }
   }
 
   new MutationObserver(() => {
