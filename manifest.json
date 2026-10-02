@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "GitHub PR Stacks",
-  "version": "0.2.0",
-  "description": "Groups pull requests on GitHub's PR list by stack, ordered bottom to top, with the stack's tickets.",
+  "version": "1.0.0",
+  "description": "Groups GitHub's pull request list by stack, ordered bottom to top, with ticket keys in each stack header. No data collected.",
   "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
   "permissions": ["storage"],
   "optional_host_permissions": ["https://*.atlassian.net/*"],
