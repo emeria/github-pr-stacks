@@ -47,15 +47,21 @@ test("summarizes ticket failures by their most actionable reason", () => {
     [
       { key: "A-1", error: "Jira returned HTTP 404 for A-1", reason: "not-found" },
       { key: "A-2", error: "Jira returned HTTP 401 for A-2", reason: "auth" },
-    ],
-    "jira"
+    ]
   );
-  assert.strictEqual(p.id, "tickets:auth");
+  assert.strictEqual(p.id, "jira:auth");
   assert.match(p.detail, /^Jira rejected your credentials/);
 });
 
 test("lists missing tickets and shortens long lists", () => {
   const keys = ["A-1", "A-2", "A-3", "A-4", "A-5"];
-  const p = describeTicketFailures(keys.map((key) => ({ key, error: "x", reason: "not-found" })), "linear");
-  assert.match(p.detail, /^Linear has no tickets A-1, A-2, A-3 and 2 more\./);
+  const p = describeTicketFailures(keys.map((key) => ({ key, error: "x", reason: "not-found" })));
+  assert.match(p.detail, /^Jira has no tickets A-1, A-2, A-3 and 2 more\./);
+});
+
+test("explains GitHub issue lookup failures separately", () => {
+  const p = describeTicketFailures([{ key: "a/b#1", error: "x", reason: "rate-limited" }], "github");
+  assert.strictEqual(p.id, "github:rate-limited");
+  assert.strictEqual(p.title, "Having trouble looking up issues");
+  assert.match(p.detail, /API limit/);
 });

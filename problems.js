@@ -38,15 +38,28 @@ function describeRefFailures(failures, { total, hasToken }) {
       : "Without a token the extension reads branch names from GitHub's pages, and it couldn't find them there. Add a GitHub token in the extension options, for example the output of gh auth token.",
   };
   const needsOptions = reason === "unauthorized" || reason === "no-repo-access" || (reason === "unreadable" && !hasToken);
-  return { id: `refs:${reason}`, title: "Having trouble stacking pull requests", detail: `${lead} ${fixes[reason]}`, options: needsOptions };
+  return {
+    id: `refs:${reason}`,
+    title: "Having trouble stacking pull requests",
+    detail: `${lead} ${fixes[reason]}`,
+    options: needsOptions,
+    retry: true,
+  };
 }
 
-const TICKET_REASONS = ["no-access", "auth", "network", "not-found", "other"];
+const TICKET_REASONS = ["no-access", "auth", "rate-limited", "network", "not-found", "other"];
 
-// failures: [{ key, error, reason }], tracker: "jira" or "linear".
-function describeTicketFailures(failures, tracker) {
+// GitHub API reasons, as ticket lookup reasons. A missing issue is never reported; it is just not shown.
+function issueReason(apiReason) {
+  if (apiReason === "rate-limited") return "rate-limited";
+  if (apiReason === "unauthorized" || apiReason === "sso" || apiReason === "no-repo-access") return "auth";
+  return "other";
+}
+
+// failures: [{ key, error, reason }], source: "jira" or "github".
+function describeTicketFailures(failures, source = "jira") {
   if (!failures.length) return null;
-  const name = tracker === "linear" ? "Linear" : "Jira";
+  const name = source === "github" ? "GitHub" : "Jira";
   const reasons = failures.map((f) => f.reason || "other");
   const reason = TICKET_REASONS.find((r) => reasons.includes(r));
   const keys = failures.filter((f) => (f.reason || "other") === reason).map((f) => f.key);
@@ -55,12 +68,16 @@ function describeTicketFailures(failures, tracker) {
 
   const details = {
     "no-access": `Chrome hasn't given the extension access to ${name}. Open the extension options and save them again to grant it.`,
-    auth: `${name} rejected your credentials. Check them in the extension options and use the Test button.`,
+    auth:
+      source === "github"
+        ? "GitHub rejected your token while looking up issues. Paste a new one in the extension options, for example the output of gh auth token."
+        : `${name} rejected your credentials. Check them in the extension options and use the Test button.`,
+    "rate-limited": "GitHub's API limit was reached while looking up issues. A GitHub token in the extension options raises the limit; otherwise reload the page later.",
     network: `${name} didn't respond. Check the ${name} address in the extension options and your connection.`,
     "not-found": `${name} has no ${keys.length === 1 ? "ticket" : "tickets"} ${list}. If ${keys.length === 1 ? "that isn't a ticket key" : "those aren't ticket keys"}, set your project keys in the extension options.`,
     other: `${name} returned an error for ${list}: ${first.error}`,
   };
-  return { id: `tickets:${reason}`, title: "Having trouble looking up tickets", detail: details[reason], options: true };
+  return { id: `${source}:${reason}`, title: source === "github" ? "Having trouble looking up issues" : "Having trouble looking up tickets", detail: details[reason], options: true };
 }
 
-if (typeof module !== "undefined") module.exports = { apiReason, describeRefFailures, describeTicketFailures };
+if (typeof module !== "undefined") module.exports = { apiReason, issueReason, describeRefFailures, describeTicketFailures };
