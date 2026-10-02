@@ -15,6 +15,7 @@ const FILES = [
   "options.html",
   "options.js",
   "problems.js",
+  "status.js",
   "settings.js",
   "stacks.js",
   "tickets.js",

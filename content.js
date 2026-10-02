@@ -66,6 +66,62 @@
     } catch {}
   };
 
+  // A PR's state as GitHub's list shows it, used when there's no token or the API doesn't answer.
+  function rowDomStatus(row, title) {
+    const iconLabel = row.querySelector('svg[aria-label$="pull request" i]')?.getAttribute("aria-label") || "";
+    // The badge reads "2/2 checks passing" whatever the result; its icon (check, x or dot) says the state.
+    const badge = [...row.querySelectorAll("[aria-label]")].find((el) => /\d+\/\d+ checks?/i.test(el.getAttribute("aria-label")));
+    const checks = badge ? `${badge.getAttribute("aria-label")} ${badge.querySelector("svg")?.getAttribute("class") || ""}` : "";
+    return rowStatus(iconLabel, checks, (row.innerText || "").replace(title, ""));
+  }
+
+  // Draft, review, checks and merge state for every PR on the page in one GraphQL request.
+  // Returns {} without a token or on any failure, so the list's own labels are used instead.
+  async function fetchStatuses(rows) {
+    if (!settings.token || apiBlock) return {};
+    const byRepo = new Map();
+    for (const r of rows) {
+      if (!byRepo.has(r.repo)) byRepo.set(r.repo, []);
+      byRepo.get(r.repo).push(r.number);
+    }
+    const repos = [...byRepo];
+    const parts = repos.map(([repo, numbers], i) => {
+      const [owner, name] = repo.split("/");
+      const prs = numbers.map((n) => `p${n}: pullRequest(number: ${n}) { ...pr }`).join(" ");
+      return `r${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${prs} }`;
+    });
+    const query =
+      `query { ${parts.join(" ")} } ` +
+      "fragment pr on PullRequest { state isDraft merged reviewDecision " +
+      "latestOpinionatedReviews(first: 20) { nodes { state } } " +
+      "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }";
+    try {
+      const res = await fetch("https://api.github.com/graphql", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${settings.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!res.ok) return {};
+      const { data } = await res.json();
+      const out = {};
+      repos.forEach(([repo, numbers], i) => {
+        for (const n of numbers) {
+          const pr = data?.[`r${i}`]?.[`p${n}`];
+          if (!pr) continue;
+          out[`${repo}#${n}`] = prStatus({
+            ...pr,
+            reviews: (pr.latestOpinionatedReviews?.nodes || []).map((r) => r.state),
+            checks: pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null,
+          });
+        }
+      });
+      return out;
+    } catch {
+      return {};
+    }
+  }
+
   // Finds one title link per PR, then the shared container whose direct children are the rows.
   function findRows() {
     const firstLink = new Map();
@@ -92,7 +148,8 @@
       while (row.parentElement !== container) row = row.parentElement;
       if (seen.has(row)) return null;
       seen.add(row);
-      rows.push({ key, repo: e.repo, number: e.number, row, title: e.a.textContent.trim() });
+      const title = e.a.textContent.trim();
+      rows.push({ key, repo: e.repo, number: e.number, row, title, domStatus: rowDomStatus(row, title) });
     }
     return { container, rows };
   }
@@ -277,7 +334,7 @@
         strong.style.color = "var(--fgColor-default, #1f2328)";
         summary.append(strong, "  ·  ");
       }
-      summary.append(`Stack of ${unit.members.length} onto ${unit.base}  ·  bottom to top`);
+      summary.append(`Stack of ${unit.members.length} onto ${unit.base}  ·  bottom to top`, progressBar(unit.members));
     } else if (unit.base === "?") {
       summary.append(icon("alert", "var(--fgColor-attention, #9a6700)"), "Branches unknown, not grouped");
     } else {
@@ -287,6 +344,36 @@
 
     if (settings.ticketsEnabled) addTicketLine(h, unit);
     return h;
+  }
+
+  // Same width on every stack so the bars line up down the page; one equal segment per PR, bottom to top.
+  const BAR_WIDTH = "160px";
+
+  function progressBar(members) {
+    const statuses = members.map((m) => m.status);
+    const { done, total, text } = stackProgress(statuses);
+    const wrap = document.createElement("span");
+    Object.assign(wrap.style, { marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px", flex: "none" });
+    wrap.setAttribute("role", "img");
+    wrap.setAttribute(
+      "aria-label",
+      `${done} of ${total} approved. ` + members.map((m, i) => `#${m.number} ${STATUS_LABELS[statuses[i]].toLowerCase()}`).join(", ")
+    );
+
+    const label = document.createElement("span");
+    label.textContent = text;
+    Object.assign(label.style, { minWidth: "96px", textAlign: "right", fontVariantNumeric: "tabular-nums" });
+
+    const bar = document.createElement("span");
+    Object.assign(bar.style, { display: "flex", gap: "2px", width: BAR_WIDTH, height: "6px", borderRadius: "3px", overflow: "hidden" });
+    members.forEach((m, i) => {
+      const seg = document.createElement("span");
+      Object.assign(seg.style, { flex: "1", background: STATUS_COLORS[statuses[i]] });
+      seg.title = `#${m.number} · ${STATUS_LABELS[statuses[i]]}`;
+      bar.appendChild(seg);
+    });
+    wrap.append(label, bar);
+    return wrap;
   }
 
   function addTicketLine(header, unit) {
@@ -663,8 +750,11 @@
     showLoader();
     running = signature;
     let refs;
+    let statuses = {};
     try {
+      const statusRequest = fetchStatuses(rows);
       refs = await mapLimit(rows, 4, (r) => getRefs(r.repo, r.number), failures);
+      statuses = await statusRequest;
     } finally {
       if (running === signature) running = "";
       // A newer run owns the loader if the page changed while this one was waiting.
@@ -698,6 +788,7 @@
         base: ref?.base ?? "?",
         title: ref?.title || r.title,
         body: ref?.body || "",
+        status: statuses[r.key] || r.domStatus,
       });
     });
     const units = buildUnits(prs);
