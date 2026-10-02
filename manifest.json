@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "GitHub PR Stacks",
+  "version": "0.1.0",
+  "description": "Groups pull requests on GitHub's PR list by stack, ordered bottom to top.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://github.com/*", "https://api.github.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["stacks.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  }
+}

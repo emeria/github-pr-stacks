@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>GitHub PR Stacks</title>
+    <style>
+      body { font: 13px -apple-system, BlinkMacSystemFont, sans-serif; padding: 12px; width: 360px; }
+      input { width: 100%; box-sizing: border-box; padding: 6px; margin: 6px 0; }
+      p { color: #59636e; }
+    </style>
+  </head>
+  <body>
+    <label for="token">GitHub token (optional)</label>
+    <input id="token" type="password" placeholder="github_pat_..." />
+    <button id="save">Save</button> <span id="status"></span>
+    <p>Paste the output of <code>gh auth token</code>, or a fine-grained token with read access to pull requests. For SAML orgs the token must be authorized for the org. It is stored locally in this browser only.</p>
+    <p>Without a token the extension tries to read branch names from GitHub's pages using your signed-in session, which can break when GitHub changes its markup.</p>
+    <script src="options.js"></script>
+  </body>
+</html>
