@@ -44,13 +44,9 @@ Turn on "Ticket references" in the options to add a second line to each stack he
 - Set project keys (for example `DATA, IDEA`) to ignore lookalikes such as `UTF-8`, or supply your own key pattern.
 - Without a tracker, the description is the bottom PR's title with ticket keys and part numbers like `pt1/6` removed. A link template such as `https://example.atlassian.net/browse/{key}` makes the keys clickable.
 
-To show ticket titles instead, choose a tracker under "Ticket lookup":
+To show ticket titles instead, choose Jira Cloud under "Ticket lookup" and enter your Jira URL (`https://<site>.atlassian.net`), account email and an API token from id.atlassian.com/manage-profile/security/api-tokens. Only Jira Cloud is supported.
 
-- Jira Cloud - your Jira URL, account email and an API token from id.atlassian.com/manage-profile/security/api-tokens.
-- Jira Data Center or Server - your Jira URL and a personal access token.
-- Linear - a personal API key.
-
-Saving asks Chrome for access to the tracker's site. Tracker credentials are read only by the extension's background script and sent only to the tracker. Use the Test button to check a key before reloading GitHub. Ticket titles are cached for 30 minutes.
+Saving asks Chrome for access to your Jira site. Jira credentials are read only by the extension's background script and sent only to Jira. Use the Test button to check a key before reloading GitHub. Ticket titles are cached for 30 minutes.
 
 ## Limits
 

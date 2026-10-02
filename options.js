@@ -14,13 +14,12 @@ function sync() {
   const s = read();
   $("ticketOptions").hidden = !s.ticketsEnabled;
   $("jiraOptions").hidden = s.tracker !== "jira";
-  $("linearOptions").hidden = s.tracker !== "linear";
-  $("jiraEmailRow").hidden = s.jiraAuth !== "cloud";
-  $("jiraTokenRow").hidden = s.jiraAuth === "session";
+  $("jiraCloudRows").hidden = s.jiraAuth !== "cloud";
   $("testRow").hidden = s.tracker === "none";
 }
 
-chrome.storage.local.get(SETTINGS_DEFAULTS, (s) => {
+chrome.storage.local.get(SETTINGS_DEFAULTS, (stored) => {
+  const s = normalizeSettings(stored);
   for (const k of fields) {
     const el = $(k);
     if (el.type === "checkbox") el.checked = !!s[k];
@@ -44,6 +43,10 @@ async function save() {
       show($("status"), `Key pattern is not a valid regular expression: ${err.message}`);
       return false;
     }
+  }
+  if (s.tracker === "jira" && !isJiraCloud(s.jiraBase)) {
+    show($("status"), "Not saved: enter your Jira Cloud address, for example https://example.atlassian.net.");
+    return false;
   }
   // permissions.request must run directly from the click, before any other await.
   const origin = trackerOrigin(s);

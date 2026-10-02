@@ -47,8 +47,7 @@ test("summarizes ticket failures by their most actionable reason", () => {
     [
       { key: "A-1", error: "Jira returned HTTP 404 for A-1", reason: "not-found" },
       { key: "A-2", error: "Jira returned HTTP 401 for A-2", reason: "auth" },
-    ],
-    "jira"
+    ]
   );
   assert.strictEqual(p.id, "tickets:auth");
   assert.match(p.detail, /^Jira rejected your credentials/);
@@ -56,6 +55,6 @@ test("summarizes ticket failures by their most actionable reason", () => {
 
 test("lists missing tickets and shortens long lists", () => {
   const keys = ["A-1", "A-2", "A-3", "A-4", "A-5"];
-  const p = describeTicketFailures(keys.map((key) => ({ key, error: "x", reason: "not-found" })), "linear");
-  assert.match(p.detail, /^Linear has no tickets A-1, A-2, A-3 and 2 more\./);
+  const p = describeTicketFailures(keys.map((key) => ({ key, error: "x", reason: "not-found" })));
+  assert.match(p.detail, /^Jira has no tickets A-1, A-2, A-3 and 2 more\./);
 });

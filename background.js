@@ -15,8 +15,7 @@ async function fetchJira(key, s) {
   const base = s.jiraBase.replace(/\/+$/, "");
   const headers = { Accept: "application/json" };
   if (s.jiraAuth === "cloud") headers.Authorization = "Basic " + btoa(`${s.jiraEmail}:${s.jiraToken}`);
-  if (s.jiraAuth === "bearer") headers.Authorization = `Bearer ${s.jiraToken}`;
-  // API v2 returns the summary as plain text on both Jira Cloud and Data Center.
+  // API v2 returns the summary as plain text; v3 returns rich-text documents.
   const res = await fetch(`${base}/rest/api/2/issue/${encodeURIComponent(key)}?fields=summary,status`, {
     headers,
     credentials: s.jiraAuth === "session" ? "include" : "omit",
@@ -26,33 +25,18 @@ async function fetchJira(key, s) {
   return { title: issue.fields.summary, status: issue.fields.status?.name, url: `${base}/browse/${issue.key}` };
 }
 
-async function fetchLinear(key, s) {
-  const res = await fetch("https://api.linear.app/graphql", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: s.linearKey },
-    body: JSON.stringify({
-      query: "query($id: String!) { issue(id: $id) { title url state { name } } }",
-      variables: { id: key },
-    }),
-  });
-  if (!res.ok) throw lookupError(`Linear returned HTTP ${res.status} for ${key}`, httpReason(res.status));
-  const { data, errors } = await res.json();
-  if (!data?.issue) throw lookupError(errors?.[0]?.message || `Linear has no issue ${key}`, "not-found");
-  return { title: data.issue.title, status: data.issue.state?.name, url: data.issue.url };
-}
-
 async function fetchTicket(key, s) {
   const origin = trackerOrigin(s);
   if (origin && !(await chrome.permissions.contains({ origins: [origin] }))) {
     throw lookupError(`No access to ${origin}. Save the extension options again to grant it.`, "no-access");
   }
-  if (s.tracker === "jira") return fetchJira(key, s);
-  if (s.tracker === "linear") return fetchLinear(key, s);
-  throw new Error("No ticket tracker configured");
+  if (s.tracker !== "jira") throw new Error("No ticket tracker configured");
+  if (!isJiraCloud(s.jiraBase)) throw lookupError("Only Jira Cloud sites on atlassian.net are supported.", "no-access");
+  return fetchJira(key, s);
 }
 
 async function lookupTickets(keys, { useCache = true } = {}) {
-  const s = await chrome.storage.local.get(SETTINGS_DEFAULTS);
+  const s = normalizeSettings(await chrome.storage.local.get(SETTINGS_DEFAULTS));
   const { [TICKET_CACHE_KEY]: cache = {} } = await chrome.storage.local.get(TICKET_CACHE_KEY);
   const scope = s.tracker === "jira" ? s.jiraBase : s.tracker;
   const out = {};

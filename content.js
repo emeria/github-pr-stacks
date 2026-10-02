@@ -13,7 +13,7 @@
   const inflight = new Map();
 
   chrome.storage.local.get(SETTINGS_DEFAULTS, (v) => {
-    settings = v;
+    settings = normalizeSettings(v);
     settingsVersion++;
     schedule();
   });
@@ -22,6 +22,7 @@
     for (const [k, { newValue }] of Object.entries(changes)) {
       if (k in SETTINGS_DEFAULTS) settings[k] = newValue ?? SETTINGS_DEFAULTS[k];
     }
+    settings = normalizeSettings(settings);
     settingsVersion++;
     schedule();
   });
@@ -305,7 +306,7 @@
         for (const [key, t] of Object.entries(tickets)) {
           if (t.error) ticketFailures.set(key, { key, error: t.error, reason: t.reason });
         }
-        setProblem("tickets", describeTicketFailures([...ticketFailures.values()], settings.tracker));
+        setProblem("tickets", describeTicketFailures([...ticketFailures.values()]));
         applying = true;
         draw(tickets);
         applying = false;

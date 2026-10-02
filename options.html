@@ -55,34 +55,24 @@
       <label for="tracker">Fetch ticket titles from</label>
       <select id="tracker">
         <option value="none">Nothing (show keys only)</option>
-        <option value="jira">Jira</option>
-        <option value="linear">Linear</option>
+        <option value="jira">Jira Cloud</option>
       </select>
 
       <div id="jiraOptions" hidden>
-        <label for="jiraBase">Jira URL</label>
+        <label for="jiraBase">Jira Cloud URL</label>
         <input id="jiraBase" type="url" placeholder="https://example.atlassian.net" />
         <label for="jiraAuth">Sign in with</label>
         <select id="jiraAuth">
-          <option value="cloud">Email and API token (Jira Cloud)</option>
-          <option value="bearer">Personal access token (Jira Data Center or Server)</option>
+          <option value="cloud">Email and API token</option>
           <option value="session">My browser session (no token, may be blocked by the browser)</option>
         </select>
-        <div id="jiraEmailRow">
+        <div id="jiraCloudRows">
           <label for="jiraEmail">Atlassian account email</label>
           <input id="jiraEmail" type="email" autocomplete="off" />
-        </div>
-        <div id="jiraTokenRow">
-          <label for="jiraToken">Token</label>
+          <label for="jiraToken">API token</label>
           <input id="jiraToken" type="password" autocomplete="off" />
-          <p class="hint">Jira Cloud API tokens are created at id.atlassian.com/manage-profile/security/api-tokens.</p>
+          <p class="hint">Created at id.atlassian.com/manage-profile/security/api-tokens.</p>
         </div>
-      </div>
-
-      <div id="linearOptions" hidden>
-        <label for="linearKey">Linear personal API key</label>
-        <input id="linearKey" type="password" autocomplete="off" />
-        <p class="hint">Created under Settings, Security and access, Personal API keys.</p>
       </div>
 
       <div id="testRow" class="row" hidden>
@@ -90,7 +80,7 @@
         <button id="test" type="button">Test</button>
       </div>
       <p id="testResult" class="hint"></p>
-      <p class="hint">Saving asks Chrome for access to the tracker's site. Tracker credentials are used only by the extension's background script and are sent only to the tracker.</p>
+      <p class="hint">Only Jira Cloud sites on atlassian.net are supported. Saving asks Chrome for access to your Jira site. Jira credentials are used only by the extension's background script and are sent only to Jira.</p>
     </fieldset>
 
     <button id="save" type="button">Save</button><span id="status"></span>

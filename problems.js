@@ -43,10 +43,10 @@ function describeRefFailures(failures, { total, hasToken }) {
 
 const TICKET_REASONS = ["no-access", "auth", "network", "not-found", "other"];
 
-// failures: [{ key, error, reason }], tracker: "jira" or "linear".
-function describeTicketFailures(failures, tracker) {
+// failures: [{ key, error, reason }] from Jira lookups.
+function describeTicketFailures(failures) {
   if (!failures.length) return null;
-  const name = tracker === "linear" ? "Linear" : "Jira";
+  const name = "Jira";
   const reasons = failures.map((f) => f.reason || "other");
   const reason = TICKET_REASONS.find((r) => reasons.includes(r));
   const keys = failures.filter((f) => (f.reason || "other") === reason).map((f) => f.key);
