@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GitHub PR Stacks",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Groups GitHub's pull request list by stack, ordered bottom to top, with ticket keys in each stack header. No data collected.",
   "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
   "permissions": ["storage"],
@@ -13,7 +13,7 @@
     {
       "matches": ["https://github.com/*"],
       "js": ["settings.js", "stacks.js", "tickets.js", "problems.js", "status.js", "content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_end"
     }
   ],
   "options_ui": {
