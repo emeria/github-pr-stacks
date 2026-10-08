@@ -16,6 +16,7 @@ Text for the Chrome Web Store and Firefox Add-ons forms, field by field. Build t
 >
 > - A PR belongs to a stack when its base branch is another open PR's head branch. Stacks made with gh stack, Graphite or by hand all work.
 > - Each stack gets a header with a name taken from its PR titles, how many PRs it has and the branch it lands on.
+> - A progress bar on each stack shows how many PRs are approved, with one segment per PR: draft, checks running or failing, changes requested, ready for review, approved or merged. It refreshes every minute.
 > - Optional ticket line: Jira keys like ABC-123 or GitHub issues like #123, with their titles. Choose which source wins and turn either off.
 > - GitHub's own sort order still applies. Single PRs keep their place.
 > - One button turns grouping on and off.

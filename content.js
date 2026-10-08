@@ -6,8 +6,6 @@
   // Older entries are still used when GitHub can't be reached, and dropped after a day.
   const STALE_MS = 24 * 60 * 60 * 1000;
   const FETCH_TIMEOUT_MS = 10 * 1000;
-  // The loader only appears when grouping takes longer than this, so cached pages don't flash it.
-  const LOADER_DELAY_MS = 300;
   const ENABLED_KEY = "prStacks.enabled";
   const MARK = "data-pr-stacks";
 
@@ -75,9 +73,10 @@
     return rowStatus(iconLabel, checks, (row.innerText || "").replace(title, ""));
   }
 
-  // Draft, review, checks and merge state for every PR on the page in one GraphQL request.
-  // Returns {} without a token or on any failure, so the list's own labels are used instead.
-  async function fetchStatuses(rows) {
+  // Branches, title, description and review/checks/merge state for every PR on the page in one
+  // GraphQL request. Returns {} without a token or on any failure; PRs it doesn't cover are then
+  // read one by one, which also explains token problems in the toast.
+  async function fetchAll(rows) {
     if (!settings.token || apiBlock) return {};
     const byRepo = new Map();
     for (const r of rows) {
@@ -92,7 +91,7 @@
     });
     const query =
       `query { ${parts.join(" ")} } ` +
-      "fragment pr on PullRequest { state isDraft merged reviewDecision " +
+      "fragment pr on PullRequest { headRefName baseRefName title body state isDraft merged reviewDecision " +
       "latestOpinionatedReviews(first: 20) { nodes { state } } " +
       "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }";
     try {
@@ -108,12 +107,18 @@
       repos.forEach(([repo, numbers], i) => {
         for (const n of numbers) {
           const pr = data?.[`r${i}`]?.[`p${n}`];
-          if (!pr) continue;
-          out[`${repo}#${n}`] = prStatus({
-            ...pr,
-            reviews: (pr.latestOpinionatedReviews?.nodes || []).map((r) => r.state),
-            checks: pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null,
-          });
+          if (!pr?.headRefName) continue;
+          out[`${repo}#${n}`] = {
+            head: pr.headRefName,
+            base: pr.baseRefName,
+            title: pr.title,
+            body: pr.body || "",
+            status: prStatus({
+              ...pr,
+              reviews: (pr.latestOpinionatedReviews?.nodes || []).map((r) => r.state),
+              checks: pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null,
+            }),
+          };
         }
       });
       return out;
@@ -665,7 +670,8 @@
   let loaderTimer = null;
 
   // Repeated calls keep the first timer, so a busy page can't keep pushing the loader back.
-  function showLoader() {
+  // A short delay keeps it from flashing when the stacks are drawn from cache right away.
+  function showLoader(delay = 150) {
     if (loaderTimer || document.querySelector(`[${MARK}="loader"]`)) return;
     loaderTimer = setTimeout(() => {
       loaderTimer = null;
@@ -708,7 +714,7 @@
       loader.appendChild(document.importNode(svg, true));
       document.body.appendChild(loader);
       applying = wasApplying;
-    }, LOADER_DELAY_MS);
+    }, delay);
   }
 
   function hideLoader() {
@@ -722,17 +728,47 @@
     applying = wasApplying;
   }
 
-  async function run() {
+  // What the stacks look like for a set of PRs, so a refresh that changes nothing doesn't redraw.
+  let lastView = "";
+
+  function draw(container, rows, refs, { force = false } = {}) {
+    const prs = rows.map((r, index) => {
+      const ref = refs[index];
+      return {
+        key: r.key,
+        repo: r.repo,
+        number: r.number,
+        index,
+        head: ref?.head ?? `?${r.key}`,
+        base: ref?.base ?? "?",
+        title: ref?.title || r.title,
+        body: ref?.body || "",
+        status: ref?.status || r.domStatus,
+      };
+    });
+    const units = buildUnits(prs);
+    const view = JSON.stringify([settingsVersion, units.map((u) => u.members.map((m) => [m.key, m.head, m.base, m.title, m.status]))]);
+    const hasHeaders = !!container.querySelector(`:scope > [${MARK}="header"]`);
+    if (!force && view === lastView && hasHeaders) return;
+    lastView = view;
+    applying = true;
+    render(container, rows, units);
+    applying = false;
+  }
+
+  // refresh: re-read from GitHub even though the list itself hasn't changed (timer or tab focus).
+  async function run({ refresh = false } = {}) {
     renderToggle();
     renderToast();
-    if (!LIST_PATH.test(location.pathname)) return;
+    if (!LIST_PATH.test(location.pathname)) return hideLoader();
     const found = findRows();
     if (!found) return;
     const { container, rows } = found;
 
     const hasHeaders = !!container.querySelector(`:scope > [${MARK}="header"]`);
-    const signature = `${isEnabled()}|${settingsVersion}|${rows.map((r) => r.key).join(",")}`;
-    if (signature === lastSignature && (hasHeaders || !isEnabled())) return;
+    // The list's own state labels are part of it, so GitHub updating a row regroups and recolours.
+    const signature = `${isEnabled()}|${settingsVersion}|${rows.map((r) => `${r.key}:${r.domStatus}`).join(",")}`;
+    if (!refresh && signature === lastSignature && (hasHeaders || !isEnabled())) return;
     lastSignature = signature;
     // GitHub's page changes often; a run already reading this same list doesn't need a twin.
     if (signature === running) return;
@@ -741,20 +777,32 @@
       applying = true;
       clear(container);
       applying = false;
+      lastView = "";
       problems.clear();
       renderToast();
+      hideLoader();
       return;
     }
 
+    // Draw straight away from what was read before, however old, then bring it up to date quietly.
+    const cache = readCache();
+    const cached = rows.map((r) => cache[r.key]);
+    const drewFromCache = cached.every((c) => c && Date.now() - c.at < STALE_MS);
+    if (drewFromCache && !refresh) {
+      draw(container, rows, cached);
+      hideLoader();
+    } else if (!drewFromCache) {
+      showLoader(0);
+    }
+
     const failures = [];
-    showLoader();
     running = signature;
     let refs;
-    let statuses = {};
     try {
-      const statusRequest = fetchStatuses(rows);
-      refs = await mapLimit(rows, 4, (r) => getRefs(r.repo, r.number), failures);
-      statuses = await statusRequest;
+      // With a token, one request covers the whole page; anything it misses is read PR by PR.
+      const all = await fetchAll(rows);
+      for (const [key, ref] of Object.entries(all)) writeCache(key, ref);
+      refs = await mapLimit(rows, 8, (r) => all[r.key] || getRefs(r.repo, r.number), failures);
     } finally {
       if (running === signature) running = "";
       // A newer run owns the loader if the page changed while this one was waiting.
@@ -764,49 +812,52 @@
     // GitHub re-rendered the list meanwhile; go again on the new one, now mostly from cache.
     if (!container.isConnected) return schedule();
     setProblem("refs", describeRefFailures(failures, { total: rows.length, hasToken: !!settings.token }));
-    ticketFailures.clear();
-    issueFailures.clear();
-    setProblem("tickets", null);
-    setProblem("issues", null);
+    if (!refresh) {
+      ticketFailures.clear();
+      issueFailures.clear();
+      setProblem("tickets", null);
+      setProblem("issues", null);
+    }
     // With nothing read there is nothing to group, so leave GitHub's list as it was and let the toast explain.
     if (failures.length === rows.length) {
       applying = true;
       clear(container);
       applying = false;
+      lastView = "";
       return;
     }
-
-    const prs = [];
-    rows.forEach((r, index) => {
-      const ref = refs[index];
-      prs.push({
-        key: r.key,
-        repo: r.repo,
-        number: r.number,
-        index,
-        head: ref?.head ?? `?${r.key}`,
-        base: ref?.base ?? "?",
-        title: ref?.title || r.title,
-        body: ref?.body || "",
-        status: statuses[r.key] || r.domStatus,
-      });
-    });
-    const units = buildUnits(prs);
-    applying = true;
-    render(container, rows, units);
-    applying = false;
+    draw(container, rows, refs);
   }
 
+  // Fires at most once per 150 ms however busy the page is, rather than waiting for it to go quiet,
+  // so a list GitHub is still rendering gets grouped as soon as its rows are there.
   let timer = null;
   function schedule() {
-    clearTimeout(timer);
-    timer = setTimeout(safeRun, 250);
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      safeRun();
+    }, 150);
   }
 
+  // Re-reads every minute while the tab is visible, and on coming back to the tab, so approvals,
+  // checks and merges show up without a reload. With a token that's one request per refresh.
+  const REFRESH_MS = 60 * 1000;
+  let lastRefresh = Date.now();
+  function refresh() {
+    if (document.visibilityState !== "visible" || !LIST_PATH.test(location.pathname) || !isEnabled()) return;
+    lastRefresh = Date.now();
+    safeRun({ refresh: true });
+  }
+  setInterval(() => Date.now() - lastRefresh >= REFRESH_MS && refresh(), 10 * 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && Date.now() - lastRefresh > 15 * 1000) refresh();
+  });
+
   // A bug or a GitHub page change should show up once in the toast, not as an error on every DOM change.
-  async function safeRun() {
+  async function safeRun(options) {
     try {
-      await run();
+      await run(options);
     } catch (err) {
       setProblem("crash", {
         id: `crash:${err?.message}`,
@@ -821,5 +872,14 @@
   }).observe(document.body, { childList: true, subtree: true });
   document.addEventListener("turbo:load", schedule);
   window.addEventListener("popstate", schedule);
+
+  // On a PR list, show the loader from the start: GitHub is often still drawing the list, and the
+  // stacks can't be grouped until its rows exist. It goes once they're drawn, or after 15 seconds.
+  if (LIST_PATH.test(location.pathname) && isEnabled()) {
+    // The toggle first, so the loader sits beside it rather than under it.
+    renderToggle();
+    showLoader();
+    setTimeout(() => !document.querySelector(`[${MARK}="header"]`) && hideLoader(), 15 * 1000);
+  }
   schedule();
 })();
