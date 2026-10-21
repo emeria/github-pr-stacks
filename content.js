@@ -769,6 +769,10 @@
   }
 
   // refresh: re-read from GitHub even though the list itself hasn't changed (timer or tab focus).
+  // Cached branches are fine to reuse, but a cached review state can be minutes old, so the state
+  // GitHub's list shows wins until the API answers.
+  const withoutStatus = (ref) => ref && { ...ref, status: undefined };
+
   // The list URL the stacks were last read on. Coming back to it, often straight after approving a PR,
   // re-reads even though GitHub can show the same rows (and our headers) from its own cache.
   let readOn = "";
@@ -807,7 +811,7 @@
 
     // Draw straight away from what was read before, however old, then bring it up to date quietly.
     const cache = readCache();
-    const cached = rows.map((r) => cache[r.key]);
+    const cached = rows.map((r) => withoutStatus(cache[r.key]));
     const drewFromCache = cached.every((c) => c && Date.now() - c.at < STALE_MS);
     if (drewFromCache && !refresh) {
       draw(container, rows, cached);
@@ -823,7 +827,7 @@
       // With a token, one request covers the whole page; anything it misses is read PR by PR.
       const all = await fetchAll(rows);
       for (const [key, ref] of Object.entries(all)) writeCache(key, ref);
-      refs = await mapLimit(rows, 8, (r) => all[r.key] || getRefs(r.repo, r.number), failures);
+      refs = await mapLimit(rows, 8, (r) => all[r.key] || getRefs(r.repo, r.number).then(withoutStatus), failures);
     } finally {
       if (running === signature) running = "";
       // A newer run owns the loader if the page changed while this one was waiting.
