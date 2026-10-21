@@ -403,6 +403,12 @@
     const label = document.createElement("span");
     label.textContent = text;
     Object.assign(label.style, { minWidth: "96px", textAlign: "right", fontVariantNumeric: "tabular-nums" });
+    // Says where the states came from, since GitHub's list only changes on a reload.
+    wrap.title = members.every((m) => m.live)
+      ? "Review states from GitHub's API, kept up to date"
+      : settings.token
+        ? "Review states from GitHub's list: the API didn't answer for every PR, so they change only when you reload"
+        : "Review states from GitHub's list, which changes only when you reload. Save a GitHub token in the extension options to keep them live";
 
     const bar = document.createElement("span");
     Object.assign(bar.style, { display: "flex", gap: "2px", width: BAR_WIDTH, height: "6px", borderRadius: "3px", overflow: "hidden" });
@@ -779,11 +785,12 @@
         title: ref?.title || r.title,
         body: ref?.body || "",
         status: ref?.status || r.domStatus,
+        live: !!ref?.status,
       };
       return { ...pr, tickets: prTickets(pr, settings) };
     });
     const units = buildUnits(prs);
-    const view = JSON.stringify([settingsVersion, units.map((u) => u.members.map((m) => [m.key, m.head, m.base, m.title, m.status]))]);
+    const view = JSON.stringify([settingsVersion, units.map((u) => u.members.map((m) => [m.key, m.head, m.base, m.title, m.status, m.live]))]);
     const hasHeaders = !!container.querySelector(`:scope > [${MARK}="header"]`);
     if (!force && view === lastView && hasHeaders) return;
     lastView = view;
