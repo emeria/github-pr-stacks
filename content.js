@@ -73,7 +73,7 @@
 
   // A PR's state as GitHub's list shows it, used when there's no token or the API doesn't answer.
   function rowDomStatus(row, title) {
-    const iconLabel = row.querySelector('svg[aria-label$="pull request" i]')?.getAttribute("aria-label") || "";
+    const iconLabel = githubIconLabel(row.querySelector('svg[aria-label$="pull request" i]'));
     // The badge reads "2/2 checks passing" whatever the result; its icon (check, x or dot) says the state.
     const badge = [...row.querySelectorAll("[aria-label]")].find((el) => /\d+\/\d+ checks?/i.test(el.getAttribute("aria-label")));
     const checks = badge ? `${badge.getAttribute("aria-label")} ${badge.querySelector("svg")?.getAttribute("class") || ""}` : "";
@@ -305,6 +305,7 @@
   }
 
   function clear(container) {
+    restoreRowIcons(container);
     container.querySelectorAll(`:scope > [${MARK}="header"]`).forEach((h) => h.remove());
     for (const child of container.children) {
       if (child.hasAttribute(`${MARK}-row`)) {
@@ -329,6 +330,51 @@
     alert:
       "M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z",
   };
+
+  // GitHub's own state icon on each row, from its list (octicons, MIT). GitHub only redraws them on a
+  // reload, so once the API has answered they are switched to match the stack bar.
+  const ROW_ICONS = {
+    open: { label: "Open pull request", cls: "octicon octicon-git-pull-request fgColor-open", d: "M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" },
+    draft: { label: "Draft pull request", cls: "octicon octicon-git-pull-request-draft fgColor-draft", d: "M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM14 7.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0-4.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z" },
+    merged: { label: "Merged pull request", cls: "octicon octicon-git-merge fgColor-done", d: "M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z" },
+    closed: { label: "Closed pull request", cls: "octicon octicon-git-pull-request-closed fgColor-closed", d: "M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" },
+  };
+  const STATE_ICON = 'svg[aria-label$="pull request" i]';
+  const liveStatus = new Map();
+
+  // The label GitHub gave the icon, even after it was switched, so the list's own state stays readable.
+  function githubIconLabel(svg) {
+    if (!svg) return "";
+    const label = svg.getAttribute("aria-label") || "";
+    return svg.getAttribute(`${MARK}-icon`) === label ? svg.getAttribute(`${MARK}-label`) : label;
+  }
+
+  function syncRowIcon(row, status) {
+    const svg = row.querySelector(STATE_ICON);
+    const want = ROW_ICONS[["merged", "closed", "draft"].includes(status) ? status : "open"];
+    if (!svg || svg.getAttribute("aria-label") === want.label) return;
+    // Stores GitHub's version once, unless GitHub has since changed the icon itself.
+    if (svg.getAttribute(`${MARK}-icon`) !== svg.getAttribute("aria-label")) {
+      svg.setAttribute(`${MARK}-label`, svg.getAttribute("aria-label") || "");
+      svg.setAttribute(`${MARK}-class`, svg.getAttribute("class") || "");
+      svg.setAttribute(`${MARK}-d`, svg.querySelector("path")?.getAttribute("d") || "");
+    }
+    svg.setAttribute("aria-label", want.label);
+    svg.setAttribute(`${MARK}-icon`, want.label);
+    svg.setAttribute("class", want.cls);
+    svg.querySelector("path")?.setAttribute("d", want.d);
+  }
+
+  function restoreRowIcons(container) {
+    for (const svg of container.querySelectorAll(`svg[${MARK}-icon]`)) {
+      if (svg.getAttribute(`${MARK}-icon`) === svg.getAttribute("aria-label")) {
+        svg.setAttribute("aria-label", svg.getAttribute(`${MARK}-label`));
+        svg.setAttribute("class", svg.getAttribute(`${MARK}-class`));
+        svg.querySelector("path")?.setAttribute("d", svg.getAttribute(`${MARK}-d`));
+      }
+      for (const a of ["icon", "label", "class", "d"]) svg.removeAttribute(`${MARK}-${a}`);
+    }
+  }
 
   function icon(name, color) {
     const ns = "http://www.w3.org/2000/svg";
@@ -564,6 +610,8 @@
         row.setAttribute(`${MARK}-row`, "");
         row.style.order = String(order++);
         if (unit.stacked) row.style.boxShadow = "inset 3px 0 0 var(--fgColor-accent, #0969da)";
+        if (pr.live) liveStatus.set(pr.key, pr.status);
+        if (liveStatus.has(pr.key)) syncRowIcon(row, liveStatus.get(pr.key));
       }
     }
   }
@@ -828,11 +876,21 @@
     const { container, rows } = found;
     const arrived = readOn !== location.href;
     readOn = location.href;
+    // States read on an earlier visit may be older than the list GitHub just drew.
+    if (arrived) liveStatus.clear();
 
     const hasHeaders = !!container.querySelector(`:scope > [${MARK}="header"]`);
     // The list's own state labels are part of it, so GitHub updating a row regroups and recolours.
     const signature = `${isEnabled()}|${settingsVersion}|${rows.map((r) => `${r.key}:${r.domStatus}`).join(",")}`;
-    if (!refresh && !arrived && signature === lastSignature && (hasHeaders || !isEnabled())) return;
+    if (!refresh && !arrived && signature === lastSignature && (hasHeaders || !isEnabled())) {
+      // GitHub can redraw a row with its own, older icon without changing anything else.
+      if (isEnabled()) {
+        applying = true;
+        for (const r of rows) if (liveStatus.has(r.key)) syncRowIcon(r.row, liveStatus.get(r.key));
+        applying = false;
+      }
+      return;
+    }
     debug("run", { refresh, arrived, listChanged: signature !== lastSignature, hasHeaders });
     lastSignature = signature;
     // GitHub's page changes often; a run already reading this same list doesn't need a twin.
