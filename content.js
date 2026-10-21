@@ -39,6 +39,13 @@
     schedule();
   });
 
+  // Turned on from the page's console with localStorage.setItem("prStacks.debug", "1").
+  const debug = (...args) => {
+    try {
+      if (localStorage.getItem("prStacks.debug")) console.info("[PR Stacks]", ...args);
+    } catch {}
+  };
+
   const isEnabled = () => {
     try {
       return localStorage.getItem(ENABLED_KEY) !== "off";
@@ -792,7 +799,8 @@
     const units = buildUnits(prs);
     const view = JSON.stringify([settingsVersion, units.map((u) => u.members.map((m) => [m.key, m.head, m.base, m.title, m.status, m.live]))]);
     const hasHeaders = !!container.querySelector(`:scope > [${MARK}="header"]`);
-    if (!force && view === lastView && hasHeaders) return;
+    if (!force && view === lastView && hasHeaders) return debug("no change to draw");
+    debug("drawing", prs.map((p) => `#${p.number} ${p.status}${p.live ? "" : " (list)"}`).join(", "));
     lastView = view;
     applying = true;
     render(container, rows, units);
@@ -816,7 +824,7 @@
       return hideLoader();
     }
     const found = findRows();
-    if (!found) return;
+    if (!found) return debug("no PR rows found yet");
     const { container, rows } = found;
     const arrived = readOn !== location.href;
     readOn = location.href;
@@ -825,9 +833,10 @@
     // The list's own state labels are part of it, so GitHub updating a row regroups and recolours.
     const signature = `${isEnabled()}|${settingsVersion}|${rows.map((r) => `${r.key}:${r.domStatus}`).join(",")}`;
     if (!refresh && !arrived && signature === lastSignature && (hasHeaders || !isEnabled())) return;
+    debug("run", { refresh, arrived, listChanged: signature !== lastSignature, hasHeaders });
     lastSignature = signature;
     // GitHub's page changes often; a run already reading this same list doesn't need a twin.
-    if (signature === running) return;
+    if (signature === running) return debug("skipped: a run for this list is already reading");
 
     if (!isEnabled()) {
       applying = true;
@@ -857,6 +866,7 @@
     try {
       // With a token, one request covers the whole page; anything it misses is read PR by PR.
       const all = await fetchAll(rows);
+      debug("API states", Object.fromEntries(Object.entries(all).map(([k, v]) => [k, v.status])));
       for (const [key, ref] of Object.entries(all)) writeCache(key, ref);
       refs = await mapLimit(rows, 8, (r) => all[r.key] || getRefs(r.repo, r.number).then(withoutStatus), failures);
     } finally {
@@ -864,7 +874,7 @@
       // A newer run owns the loader if the page changed while this one was waiting.
       if (signature === lastSignature) hideLoader();
     }
-    if (signature !== lastSignature) return;
+    if (signature !== lastSignature) return debug("dropped: the list changed while reading");
     // GitHub re-rendered the list meanwhile; go again on the new one, now mostly from cache.
     if (!container.isConnected) return schedule();
     setProblem("refs", describeRefFailures(failures, { total: rows.length, hasToken: !!settings.token }));
@@ -902,6 +912,7 @@
   let lastRefresh = Date.now();
   function refresh() {
     if (document.visibilityState !== "visible" || !LIST_PATH.test(location.pathname) || !isEnabled()) return;
+    debug("refresh");
     lastRefresh = Date.now();
     safeRun({ refresh: true });
   }
