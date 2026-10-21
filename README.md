@@ -2,7 +2,7 @@
 
 A Chrome extension that groups the pull request list on github.com by stack. Each stack gets a header row and is listed from the bottom PR to the top one. PRs that are not part of a stack keep their place in GitHub's sort order.
 
-A PR belongs to a stack when its base branch is another open PR's head branch. That works for stacks made with `gh stack`, Graphite, or by hand.
+A PR belongs to a stack when its base branch is another open PR's head branch. That works for stacks made with `gh stack`, Graphite, or by hand. When two or more PRs in a stack share a ticket key (`DATA-513`), a PR above them whose branch or title names a different one (`DATA-514`) starts a stack of its own instead, and its header links the PR it builds on. Stacks with one ticket per PR stay together.
 
 Each stack header ends with a progress bar: how many of its PRs are approved, and one segment per PR from bottom to top, coloured by where that PR stands. The bar is the same width on every stack, so they line up. When a PR is in more than one state, the first that applies wins:
 
@@ -20,7 +20,7 @@ With a token, states come from one GitHub API request per page. Without one, the
 
 Stacks and bars refresh every minute while the tab is visible, and when you come back to the tab, so approvals, checks and merges show up without a reload; the page only redraws when something changed. With a token each refresh is one GitHub request. Without one, review states come from GitHub's list and update when you reload the page.
 
-Every PR gets a header, so GitHub's newest and oldest sorts still apply: each stack sits where its highest-placed PR would be. Stack headers have a stack icon and a blue edge on their rows; single PRs have a pull request icon. A stack header is named from wording all its PR titles share, tried in this order: the same conventional-commit scope (`docs(pass-skills): ...`), the same label before a part number (`skill-port pt1: ...`), or the longest term in every title (`perf-calibration`). A stack whose titles share no wording is named after its bottom PR's branch.
+Every PR gets a header, so GitHub's newest and oldest sorts still apply: each stack sits where its highest-placed PR would be. Stack headers have a stack icon and a blue edge on their rows; single PRs have a pull request icon. A stack header is named after the ticket key in its bottom PR's branch or title (`DATA-513`). Without one, it is named from wording all its PR titles share, tried in this order: the same conventional-commit scope (`docs(pass-skills): ...`), the same label before a part number (`skill-port pt1: ...`), or the longest term in every title (`perf-calibration`). A stack whose titles share no wording is named after its bottom PR's branch.
 
 ## Setup
 

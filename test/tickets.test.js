@@ -60,3 +60,15 @@ test("falls back to the bottom PR's branch name", () => {
   assert.strictEqual(stackName(members), "add-git-workflow-skills");
   assert.strictEqual(stackName([{ ...members[0], head: "?r#15" }, members[1]]), "");
 });
+
+test("names a stack after the bottom PR's ticket", () => {
+  const s = { srcBranch: true, srcTitle: true };
+  const members = [
+    { title: "feat(api): pt1 split paths", head: "chris/data-513-split" },
+    { title: "feat(api): pt2 tidy", head: "chris/data-513-tidy" },
+  ];
+  assert.strictEqual(stackName(members, s), "DATA-513");
+  assert.strictEqual(stackName([{ ...members[0], head: "split", title: "OPS-12: split" }, members[1]], s), "OPS-12");
+  assert.strictEqual(stackName([{ ...members[0], head: "split" }, members[1]], s), "api");
+  assert.strictEqual(stackName([{ ...members[0], head: "?org/repo-2#15" }, members[1]], s), "api");
+});

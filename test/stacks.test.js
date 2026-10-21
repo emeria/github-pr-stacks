@@ -31,3 +31,32 @@ test("does not link PRs across repositories", () => {
   ]);
   assert.ok(units.every((u) => !u.stacked));
 });
+
+test("starts a new stack when a PR names a ticket other than the one the stack shares", () => {
+  const t = (p, tickets) => ({ ...p, tickets });
+  const units = buildUnits([
+    t(pr(1, "data-1-a", "main", 0), ["DATA-1"]),
+    t(pr(2, "data-1-b", "data-1-a", 1), ["DATA-1"]),
+    t(pr(3, "tidy", "data-1-b", 2), []),
+    t(pr(4, "data-2", "tidy", 3), ["DATA-2"]),
+    t(pr(5, "data-2-b", "data-2", 4), []),
+  ]);
+  assert.deepStrictEqual(
+    units.map((u) => u.members.map((m) => m.number)),
+    [[1, 2, 3], [4, 5]]
+  );
+  assert.strictEqual(units[0].onto, null);
+  assert.strictEqual(units[1].onto.number, 3);
+  assert.strictEqual(units[1].base, "tidy");
+});
+
+test("keeps one-ticket-per-PR stacks and PRs without tickets together", () => {
+  const t = (p, tickets) => ({ ...p, tickets });
+  const units = buildUnits([
+    t(pr(1, "a", "main", 0), []),
+    t(pr(2, "b", "a", 1), ["DATA-2"]),
+    t(pr(3, "c", "b", 2), ["DATA-3"]),
+    t(pr(4, "d", "c", 3), ["DATA-4"]),
+  ]);
+  assert.deepStrictEqual(units.map((u) => u.members.map((m) => m.number)), [[1, 2, 3, 4]]);
+});

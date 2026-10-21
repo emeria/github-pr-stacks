@@ -332,23 +332,34 @@
     Object.assign(summary.style, { display: "flex", alignItems: "center", gap: "6px" });
     if (unit.stacked) {
       summary.append(icon("stack", "var(--fgColor-accent, #0969da)"));
-      const name = stackName(unit.members);
+      const name = stackName(unit.members, settings);
       if (name) {
         const strong = document.createElement("span");
         strong.textContent = name;
         strong.style.color = "var(--fgColor-default, #1f2328)";
         summary.append(strong, "  ·  ");
       }
-      summary.append(`Stack of ${unit.members.length} onto ${unit.base}  ·  bottom to top`, progressBar(unit.members));
+      summary.append(`Stack of ${unit.members.length} onto ${unit.base}`, ...ontoLink(unit), "  ·  bottom to top", progressBar(unit.members));
     } else if (unit.base === "?") {
       summary.append(icon("alert", "var(--fgColor-attention, #9a6700)"), "Branches unknown, not grouped");
     } else {
-      summary.append(icon("single", "var(--fgColor-muted, #59636e)"), `Single PR onto ${unit.base}`);
+      summary.append(icon("single", "var(--fgColor-muted, #59636e)"), `Single PR onto ${unit.base}`, ...ontoLink(unit));
     }
     h.appendChild(summary);
 
     if (settings.ticketsEnabled) addTicketLine(h, unit);
     return h;
+  }
+
+  // A stack split off for its own ticket still says which PR it builds on: "  ·  builds on DATA-512 #21".
+  function ontoLink(unit) {
+    const pr = unit.onto;
+    if (!pr) return [];
+    const a = document.createElement("a");
+    a.href = `/${pr.repo}/pull/${pr.number}`;
+    a.textContent = `${pr.tickets?.[0] ? pr.tickets[0] + " " : ""}#${pr.number}`;
+    a.title = pr.title || "";
+    return ["  ·  builds on ", a];
   }
 
   // Same width on every stack so the bars line up down the page; one equal segment per PR, bottom to top.
@@ -734,7 +745,7 @@
   function draw(container, rows, refs, { force = false } = {}) {
     const prs = rows.map((r, index) => {
       const ref = refs[index];
-      return {
+      const pr = {
         key: r.key,
         repo: r.repo,
         number: r.number,
@@ -745,6 +756,7 @@
         body: ref?.body || "",
         status: ref?.status || r.domStatus,
       };
+      return { ...pr, tickets: prTickets(pr, settings) };
     });
     const units = buildUnits(prs);
     const view = JSON.stringify([settingsVersion, units.map((u) => u.members.map((m) => [m.key, m.head, m.base, m.title, m.status]))]);
@@ -757,18 +769,27 @@
   }
 
   // refresh: re-read from GitHub even though the list itself hasn't changed (timer or tab focus).
+  // The list URL the stacks were last read on. Coming back to it, often straight after approving a PR,
+  // re-reads even though GitHub can show the same rows (and our headers) from its own cache.
+  let readOn = "";
+
   async function run({ refresh = false } = {}) {
     renderToggle();
     renderToast();
-    if (!LIST_PATH.test(location.pathname)) return hideLoader();
+    if (!LIST_PATH.test(location.pathname)) {
+      readOn = "";
+      return hideLoader();
+    }
     const found = findRows();
     if (!found) return;
     const { container, rows } = found;
+    const arrived = readOn !== location.href;
+    readOn = location.href;
 
     const hasHeaders = !!container.querySelector(`:scope > [${MARK}="header"]`);
     // The list's own state labels are part of it, so GitHub updating a row regroups and recolours.
     const signature = `${isEnabled()}|${settingsVersion}|${rows.map((r) => `${r.key}:${r.domStatus}`).join(",")}`;
-    if (!refresh && signature === lastSignature && (hasHeaders || !isEnabled())) return;
+    if (!refresh && !arrived && signature === lastSignature && (hasHeaders || !isEnabled())) return;
     lastSignature = signature;
     // GitHub's page changes often; a run already reading this same list doesn't need a twin.
     if (signature === running) return;
@@ -851,8 +872,10 @@
   }
   setInterval(() => Date.now() - lastRefresh >= REFRESH_MS && refresh(), 10 * 1000);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && Date.now() - lastRefresh > 15 * 1000) refresh();
+    if (document.visibilityState === "visible" && Date.now() - lastRefresh > 5 * 1000) refresh();
   });
+  // Back and forward can restore the whole page from the browser's cache, script state and all.
+  window.addEventListener("pageshow", (e) => e.persisted && refresh());
 
   // A bug or a GitHub page change should show up once in the toast, not as an error on every DOM change.
   async function safeRun(options) {
