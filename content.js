@@ -917,9 +917,10 @@
     safeRun({ refresh: true });
   }
   setInterval(() => Date.now() - lastRefresh >= REFRESH_MS && refresh(), 10 * 1000);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && Date.now() - lastRefresh > 5 * 1000) refresh();
-  });
+  // A list left visible in another window never changes visibility, so clicking back into it counts too.
+  const refreshOnReturn = () => document.visibilityState === "visible" && Date.now() - lastRefresh > 5 * 1000 && refresh();
+  document.addEventListener("visibilitychange", refreshOnReturn);
+  window.addEventListener("focus", refreshOnReturn);
   // Back and forward can restore the whole page from the browser's cache, script state and all.
   window.addEventListener("pageshow", (e) => e.persisted && refresh());
 
