@@ -65,3 +65,16 @@ test("explains GitHub issue lookup failures separately", () => {
   assert.strictEqual(p.title, "Having trouble looking up issues");
   assert.match(p.detail, /API limit/);
 });
+
+test("explains why review states aren't live", () => {
+  const { describeApiFailure, graphqlReason } = require("../problems.js");
+  assert.strictEqual(describeApiFailure(null), null);
+  assert.strictEqual(graphqlReason("FORBIDDEN"), "no-repo-access");
+  assert.strictEqual(graphqlReason("RATE_LIMITED"), "rate-limited");
+  const forbidden = describeApiFailure({ reason: "no-repo-access", repo: "emeria/acme-storefront" });
+  assert.match(forbidden.detail, /can't read pull requests in emeria\/acme-storefront/);
+  assert.strictEqual(forbidden.options, true);
+  const other = describeApiFailure({ reason: "unreadable", message: "Field 'x' doesn't exist" });
+  assert.match(other.detail, /returned an error: Field 'x' doesn't exist/);
+  assert.strictEqual(describeApiFailure({ reason: "network" }).options, false);
+});

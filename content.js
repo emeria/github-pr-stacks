@@ -77,6 +77,7 @@
   // GraphQL request. Returns {} without a token or on any failure; PRs it doesn't cover are then
   // read one by one, which also explains token problems in the toast.
   async function fetchAll(rows) {
+    if (!settings.token) setProblem("api", null);
     if (!settings.token || apiBlock) return {};
     const byRepo = new Map();
     for (const r of rows) {
@@ -95,14 +96,37 @@
       "latestOpinionatedReviews(first: 20) { nodes { state } } " +
       "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }";
     try {
-      const res = await fetch("https://api.github.com/graphql", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${settings.token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-      if (!res.ok) return {};
-      const { data } = await res.json();
+      let res;
+      try {
+        res = await fetch("https://api.github.com/graphql", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${settings.token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ query }),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+      } catch {
+        setProblem("api", describeApiFailure({ reason: "network" }));
+        return {};
+      }
+      if (!res.ok) {
+        const reason = apiReason(res.status, res.headers);
+        if (["unauthorized", "sso", "rate-limited"].includes(reason)) apiBlock = { reason };
+        setProblem("api", describeApiFailure({ reason, repo: repos[0]?.[0], message: `HTTP ${res.status}` }));
+        return {};
+      }
+      const { data, errors } = await res.json();
+      // Errors can cover only part of the page; the PRs they leave out are read one by one.
+      const error = errors?.[0];
+      setProblem(
+        "api",
+        error
+          ? describeApiFailure({
+              reason: graphqlReason(error.type),
+              repo: repos[Number(/^r(\d+)$/.exec(error.path?.[0] || "")?.[1])]?.[0],
+              message: error.message,
+            })
+          : null
+      );
       const out = {};
       repos.forEach(([repo, numbers], i) => {
         for (const n of numbers) {

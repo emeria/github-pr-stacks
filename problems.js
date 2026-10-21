@@ -47,7 +47,37 @@ function describeRefFailures(failures, { total, hasToken }) {
   };
 }
 
-const TICKET_REASONS = ["no-access", "auth", "rate-limited", "network", "not-found", "other"];
+// GraphQL reports most failures inside a 200 response, as errors with a type.
+function graphqlReason(type) {
+  if (type === "RATE_LIMITED") return "rate-limited";
+  if (type === "FORBIDDEN" || type === "NOT_FOUND") return "no-repo-access";
+  return "unreadable";
+}
+
+// The page-wide review state request failing. Grouping still works from GitHub's pages,
+// but the progress bars only show what GitHub's list shows, which doesn't change until a reload.
+// failure: { reason, repo?, message? }
+function describeApiFailure(failure) {
+  if (!failure) return null;
+  const lead = "Review states aren't live: the progress bars show what GitHub's list shows, which doesn't change until you reload.";
+  const fixes = {
+    unauthorized: "GitHub rejected your token. It may have expired or been revoked. Paste a new one in the extension options, for example the output of gh auth token.",
+    sso: "Your token isn't authorized for this organization's single sign-on. On GitHub, open the token's settings, choose Configure SSO and authorize it for the organization.",
+    "rate-limited": "GitHub's API limit for your token was reached. It comes back within the hour.",
+    "no-repo-access": `Your token can't read pull requests${failure.repo ? ` in ${failure.repo}` : ""}. Give it read access to pull requests, commit statuses and checks, or use the output of gh auth token.`,
+    network: "GitHub's API didn't respond. Check your connection, or whether a browser shield or ad blocker is blocking api.github.com.",
+    unreadable: `GitHub's API returned an error${failure.message ? `: ${failure.message}` : ""}.`,
+  };
+  return {
+    id: `api:${failure.reason}`,
+    title: "Having trouble reading review states",
+    detail: `${lead} ${fixes[failure.reason] || fixes.unreadable}`,
+    options: failure.reason !== "network" && failure.reason !== "rate-limited",
+    retry: true,
+  };
+}
+
+const TICKET_REASONS =["no-access", "auth", "rate-limited", "network", "not-found", "other"];
 
 // GitHub API reasons, as ticket lookup reasons. A missing issue is never reported; it is just not shown.
 function issueReason(apiReason) {
@@ -80,4 +110,4 @@ function describeTicketFailures(failures, source = "jira") {
   return { id: `${source}:${reason}`, title: source === "github" ? "Having trouble looking up issues" : "Having trouble looking up tickets", detail: details[reason], options: true };
 }
 
-if (typeof module !== "undefined") module.exports = { apiReason, issueReason, describeRefFailures, describeTicketFailures };
+if (typeof module !== "undefined") module.exports = { apiReason, graphqlReason, issueReason, describeRefFailures, describeApiFailure, describeTicketFailures };
