@@ -40,6 +40,12 @@ function stackTickets(members, settings) {
   return keys;
 }
 
+// One PR's own ticket keys, from its branch and title only, for naming and splitting stacks.
+// Branches that could not be read are placeholders starting with "?".
+function prTickets(pr, settings) {
+  return stackTickets([{ ...pr, head: pr.head?.startsWith("?") ? "" : pr.head }], { ...settings, srcBody: false });
+}
+
 // GitHub issue references, normalized to "owner/repo#12" with a lowercase repo.
 // Titles and bodies: "#12" or "owner/repo#12". Branches: GitHub's own "12-short-title" format,
 // or an "issue-12" / "gh-12" style name.
@@ -118,13 +124,17 @@ const NAME_STOPWORDS = new Set(
   "add adds added update updates fix fixes remove removes clean cleanup make use the and with from into for this that docs feat chore refactor test tests".split(" ")
 );
 
-// A short name for a stack, from wording every PR title in it shares, tried in order:
+// A short name for a stack, tried in order:
+// the bottom PR's ticket key, "DATA-513"
+// then wording every PR title in it shares:
 // the same conventional-commit scope, "docs(pass-skills): ..."
 // the same label before a part number, "skill-port pt1: ..."
 // the longest word or hyphenated term in every title, "perf-calibration"
 // the bottom PR's branch name, without any "user/" style prefix
-function stackName(members) {
+function stackName(members, settings = {}) {
   if (members.length < 2) return "";
+  const [ticket] = prTickets(members[0], { srcBranch: true, srcTitle: true, ...settings });
+  if (ticket) return ticket;
   return sharedTitleName(members.map((m) => m.title || "")) || branchName(members[0].head);
 }
 
@@ -161,6 +171,7 @@ if (typeof module !== "undefined") {
     parseProjects,
     extractKeys,
     stackTickets,
+    prTickets,
     extractIssueRefs,
     stackIssueRefs,
     issueLabel,

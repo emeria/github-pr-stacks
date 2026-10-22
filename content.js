@@ -39,6 +39,13 @@
     schedule();
   });
 
+  // Turned on from the page's console with localStorage.setItem("prStacks.debug", "1").
+  const debug = (...args) => {
+    try {
+      if (localStorage.getItem("prStacks.debug")) console.info("[PR Stacks]", ...args);
+    } catch {}
+  };
+
   const isEnabled = () => {
     try {
       return localStorage.getItem(ENABLED_KEY) !== "off";
@@ -66,7 +73,7 @@
 
   // A PR's state as GitHub's list shows it, used when there's no token or the API doesn't answer.
   function rowDomStatus(row, title) {
-    const iconLabel = row.querySelector('svg[aria-label$="pull request" i]')?.getAttribute("aria-label") || "";
+    const iconLabel = githubIconLabel(row.querySelector('svg[aria-label$="pull request" i]'));
     // The badge reads "2/2 checks passing" whatever the result; its icon (check, x or dot) says the state.
     const badge = [...row.querySelectorAll("[aria-label]")].find((el) => /\d+\/\d+ checks?/i.test(el.getAttribute("aria-label")));
     const checks = badge ? `${badge.getAttribute("aria-label")} ${badge.querySelector("svg")?.getAttribute("class") || ""}` : "";
@@ -77,6 +84,7 @@
   // GraphQL request. Returns {} without a token or on any failure; PRs it doesn't cover are then
   // read one by one, which also explains token problems in the toast.
   async function fetchAll(rows) {
+    if (!settings.token) setProblem("api", null);
     if (!settings.token || apiBlock) return {};
     const byRepo = new Map();
     for (const r of rows) {
@@ -95,14 +103,37 @@
       "latestOpinionatedReviews(first: 20) { nodes { state } } " +
       "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }";
     try {
-      const res = await fetch("https://api.github.com/graphql", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${settings.token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-      if (!res.ok) return {};
-      const { data } = await res.json();
+      let res;
+      try {
+        res = await fetch("https://api.github.com/graphql", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${settings.token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ query }),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+      } catch {
+        setProblem("api", describeApiFailure({ reason: "network" }));
+        return {};
+      }
+      if (!res.ok) {
+        const reason = apiReason(res.status, res.headers);
+        if (["unauthorized", "sso", "rate-limited"].includes(reason)) apiBlock = { reason };
+        setProblem("api", describeApiFailure({ reason, repo: repos[0]?.[0], message: `HTTP ${res.status}` }));
+        return {};
+      }
+      const { data, errors } = await res.json();
+      // Errors can cover only part of the page; the PRs they leave out are read one by one.
+      const error = errors?.[0];
+      setProblem(
+        "api",
+        error
+          ? describeApiFailure({
+              reason: graphqlReason(error.type),
+              repo: repos[Number(/^r(\d+)$/.exec(error.path?.[0] || "")?.[1])]?.[0],
+              message: error.message,
+            })
+          : null
+      );
       const out = {};
       repos.forEach(([repo, numbers], i) => {
         for (const n of numbers) {
@@ -274,6 +305,7 @@
   }
 
   function clear(container) {
+    restoreRowIcons(container);
     container.querySelectorAll(`:scope > [${MARK}="header"]`).forEach((h) => h.remove());
     for (const child of container.children) {
       if (child.hasAttribute(`${MARK}-row`)) {
@@ -298,6 +330,51 @@
     alert:
       "M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z",
   };
+
+  // GitHub's own state icon on each row, from its list (octicons, MIT). GitHub only redraws them on a
+  // reload, so once the API has answered they are switched to match the stack bar.
+  const ROW_ICONS = {
+    open: { label: "Open pull request", cls: "octicon octicon-git-pull-request fgColor-open", d: "M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" },
+    draft: { label: "Draft pull request", cls: "octicon octicon-git-pull-request-draft fgColor-draft", d: "M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM14 7.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0-4.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z" },
+    merged: { label: "Merged pull request", cls: "octicon octicon-git-merge fgColor-done", d: "M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z" },
+    closed: { label: "Closed pull request", cls: "octicon octicon-git-pull-request-closed fgColor-closed", d: "M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" },
+  };
+  const STATE_ICON = 'svg[aria-label$="pull request" i]';
+  const liveStatus = new Map();
+
+  // The label GitHub gave the icon, even after it was switched, so the list's own state stays readable.
+  function githubIconLabel(svg) {
+    if (!svg) return "";
+    const label = svg.getAttribute("aria-label") || "";
+    return svg.getAttribute(`${MARK}-icon`) === label ? svg.getAttribute(`${MARK}-label`) : label;
+  }
+
+  function syncRowIcon(row, status) {
+    const svg = row.querySelector(STATE_ICON);
+    const want = ROW_ICONS[["merged", "closed", "draft"].includes(status) ? status : "open"];
+    if (!svg || svg.getAttribute("aria-label") === want.label) return;
+    // Stores GitHub's version once, unless GitHub has since changed the icon itself.
+    if (svg.getAttribute(`${MARK}-icon`) !== svg.getAttribute("aria-label")) {
+      svg.setAttribute(`${MARK}-label`, svg.getAttribute("aria-label") || "");
+      svg.setAttribute(`${MARK}-class`, svg.getAttribute("class") || "");
+      svg.setAttribute(`${MARK}-d`, svg.querySelector("path")?.getAttribute("d") || "");
+    }
+    svg.setAttribute("aria-label", want.label);
+    svg.setAttribute(`${MARK}-icon`, want.label);
+    svg.setAttribute("class", want.cls);
+    svg.querySelector("path")?.setAttribute("d", want.d);
+  }
+
+  function restoreRowIcons(container) {
+    for (const svg of container.querySelectorAll(`svg[${MARK}-icon]`)) {
+      if (svg.getAttribute(`${MARK}-icon`) === svg.getAttribute("aria-label")) {
+        svg.setAttribute("aria-label", svg.getAttribute(`${MARK}-label`));
+        svg.setAttribute("class", svg.getAttribute(`${MARK}-class`));
+        svg.querySelector("path")?.setAttribute("d", svg.getAttribute(`${MARK}-d`));
+      }
+      for (const a of ["icon", "label", "class", "d"]) svg.removeAttribute(`${MARK}-${a}`);
+    }
+  }
 
   function icon(name, color) {
     const ns = "http://www.w3.org/2000/svg";
@@ -332,23 +409,34 @@
     Object.assign(summary.style, { display: "flex", alignItems: "center", gap: "6px" });
     if (unit.stacked) {
       summary.append(icon("stack", "var(--fgColor-accent, #0969da)"));
-      const name = stackName(unit.members);
+      const name = stackName(unit.members, settings);
       if (name) {
         const strong = document.createElement("span");
         strong.textContent = name;
         strong.style.color = "var(--fgColor-default, #1f2328)";
         summary.append(strong, "  ·  ");
       }
-      summary.append(`Stack of ${unit.members.length} onto ${unit.base}  ·  bottom to top`, progressBar(unit.members));
+      summary.append(`Stack of ${unit.members.length} onto ${unit.base}`, ...ontoLink(unit), "  ·  bottom to top", progressBar(unit.members));
     } else if (unit.base === "?") {
       summary.append(icon("alert", "var(--fgColor-attention, #9a6700)"), "Branches unknown, not grouped");
     } else {
-      summary.append(icon("single", "var(--fgColor-muted, #59636e)"), `Single PR onto ${unit.base}`);
+      summary.append(icon("single", "var(--fgColor-muted, #59636e)"), `Single PR onto ${unit.base}`, ...ontoLink(unit));
     }
     h.appendChild(summary);
 
     if (settings.ticketsEnabled) addTicketLine(h, unit);
     return h;
+  }
+
+  // A stack split off for its own ticket still says which PR it builds on: "  ·  builds on DATA-512 #21".
+  function ontoLink(unit) {
+    const pr = unit.onto;
+    if (!pr) return [];
+    const a = document.createElement("a");
+    a.href = `/${pr.repo}/pull/${pr.number}`;
+    a.textContent = `${pr.tickets?.[0] ? pr.tickets[0] + " " : ""}#${pr.number}`;
+    a.title = pr.title || "";
+    return ["  ·  builds on ", a];
   }
 
   // Same width on every stack so the bars line up down the page; one equal segment per PR, bottom to top.
@@ -368,6 +456,12 @@
     const label = document.createElement("span");
     label.textContent = text;
     Object.assign(label.style, { minWidth: "96px", textAlign: "right", fontVariantNumeric: "tabular-nums" });
+    // Says where the states came from, since GitHub's list only changes on a reload.
+    wrap.title = members.every((m) => m.live)
+      ? "Review states from GitHub's API, kept up to date"
+      : settings.token
+        ? "Review states from GitHub's list: the API didn't answer for every PR, so they change only when you reload"
+        : "Review states from GitHub's list, which changes only when you reload. Save a GitHub token in the extension options to keep them live";
 
     const bar = document.createElement("span");
     Object.assign(bar.style, { display: "flex", gap: "2px", width: BAR_WIDTH, height: "6px", borderRadius: "3px", overflow: "hidden" });
@@ -516,6 +610,8 @@
         row.setAttribute(`${MARK}-row`, "");
         row.style.order = String(order++);
         if (unit.stacked) row.style.boxShadow = "inset 3px 0 0 var(--fgColor-accent, #0969da)";
+        if (pr.live) liveStatus.set(pr.key, pr.status);
+        if (liveStatus.has(pr.key)) syncRowIcon(row, liveStatus.get(pr.key));
       }
     }
   }
@@ -734,7 +830,7 @@
   function draw(container, rows, refs, { force = false } = {}) {
     const prs = rows.map((r, index) => {
       const ref = refs[index];
-      return {
+      const pr = {
         key: r.key,
         repo: r.repo,
         number: r.number,
@@ -744,12 +840,15 @@
         title: ref?.title || r.title,
         body: ref?.body || "",
         status: ref?.status || r.domStatus,
+        live: !!ref?.status,
       };
+      return { ...pr, tickets: prTickets(pr, settings) };
     });
     const units = buildUnits(prs);
-    const view = JSON.stringify([settingsVersion, units.map((u) => u.members.map((m) => [m.key, m.head, m.base, m.title, m.status]))]);
+    const view = JSON.stringify([settingsVersion, units.map((u) => u.members.map((m) => [m.key, m.head, m.base, m.title, m.status, m.live]))]);
     const hasHeaders = !!container.querySelector(`:scope > [${MARK}="header"]`);
-    if (!force && view === lastView && hasHeaders) return;
+    if (!force && view === lastView && hasHeaders) return debug("no change to draw");
+    debug("drawing", prs.map((p) => `#${p.number} ${p.status}${p.live ? "" : " (list)"}`).join(", "));
     lastView = view;
     applying = true;
     render(container, rows, units);
@@ -757,21 +856,45 @@
   }
 
   // refresh: re-read from GitHub even though the list itself hasn't changed (timer or tab focus).
+  // Cached branches are fine to reuse, but a cached review state can be minutes old, so the state
+  // GitHub's list shows wins until the API answers.
+  const withoutStatus = (ref) => ref && { ...ref, status: undefined };
+
+  // The list URL the stacks were last read on. Coming back to it, often straight after approving a PR,
+  // re-reads even though GitHub can show the same rows (and our headers) from its own cache.
+  let readOn = "";
+
   async function run({ refresh = false } = {}) {
     renderToggle();
     renderToast();
-    if (!LIST_PATH.test(location.pathname)) return hideLoader();
+    if (!LIST_PATH.test(location.pathname)) {
+      readOn = "";
+      return hideLoader();
+    }
     const found = findRows();
-    if (!found) return;
+    if (!found) return debug("no PR rows found yet");
     const { container, rows } = found;
+    const arrived = readOn !== location.href;
+    readOn = location.href;
+    // States read on an earlier visit may be older than the list GitHub just drew.
+    if (arrived) liveStatus.clear();
 
     const hasHeaders = !!container.querySelector(`:scope > [${MARK}="header"]`);
     // The list's own state labels are part of it, so GitHub updating a row regroups and recolours.
     const signature = `${isEnabled()}|${settingsVersion}|${rows.map((r) => `${r.key}:${r.domStatus}`).join(",")}`;
-    if (!refresh && signature === lastSignature && (hasHeaders || !isEnabled())) return;
+    if (!refresh && !arrived && signature === lastSignature && (hasHeaders || !isEnabled())) {
+      // GitHub can redraw a row with its own, older icon without changing anything else.
+      if (isEnabled()) {
+        applying = true;
+        for (const r of rows) if (liveStatus.has(r.key)) syncRowIcon(r.row, liveStatus.get(r.key));
+        applying = false;
+      }
+      return;
+    }
+    debug("run", { refresh, arrived, listChanged: signature !== lastSignature, hasHeaders });
     lastSignature = signature;
     // GitHub's page changes often; a run already reading this same list doesn't need a twin.
-    if (signature === running) return;
+    if (signature === running) return debug("skipped: a run for this list is already reading");
 
     if (!isEnabled()) {
       applying = true;
@@ -786,7 +909,7 @@
 
     // Draw straight away from what was read before, however old, then bring it up to date quietly.
     const cache = readCache();
-    const cached = rows.map((r) => cache[r.key]);
+    const cached = rows.map((r) => withoutStatus(cache[r.key]));
     const drewFromCache = cached.every((c) => c && Date.now() - c.at < STALE_MS);
     if (drewFromCache && !refresh) {
       draw(container, rows, cached);
@@ -801,14 +924,15 @@
     try {
       // With a token, one request covers the whole page; anything it misses is read PR by PR.
       const all = await fetchAll(rows);
+      debug("API states", Object.fromEntries(Object.entries(all).map(([k, v]) => [k, v.status])));
       for (const [key, ref] of Object.entries(all)) writeCache(key, ref);
-      refs = await mapLimit(rows, 8, (r) => all[r.key] || getRefs(r.repo, r.number), failures);
+      refs = await mapLimit(rows, 8, (r) => all[r.key] || getRefs(r.repo, r.number).then(withoutStatus), failures);
     } finally {
       if (running === signature) running = "";
       // A newer run owns the loader if the page changed while this one was waiting.
       if (signature === lastSignature) hideLoader();
     }
-    if (signature !== lastSignature) return;
+    if (signature !== lastSignature) return debug("dropped: the list changed while reading");
     // GitHub re-rendered the list meanwhile; go again on the new one, now mostly from cache.
     if (!container.isConnected) return schedule();
     setProblem("refs", describeRefFailures(failures, { total: rows.length, hasToken: !!settings.token }));
@@ -846,13 +970,17 @@
   let lastRefresh = Date.now();
   function refresh() {
     if (document.visibilityState !== "visible" || !LIST_PATH.test(location.pathname) || !isEnabled()) return;
+    debug("refresh");
     lastRefresh = Date.now();
     safeRun({ refresh: true });
   }
   setInterval(() => Date.now() - lastRefresh >= REFRESH_MS && refresh(), 10 * 1000);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && Date.now() - lastRefresh > 15 * 1000) refresh();
-  });
+  // A list left visible in another window never changes visibility, so clicking back into it counts too.
+  const refreshOnReturn = () => document.visibilityState === "visible" && Date.now() - lastRefresh > 5 * 1000 && refresh();
+  document.addEventListener("visibilitychange", refreshOnReturn);
+  window.addEventListener("focus", refreshOnReturn);
+  // Back and forward can restore the whole page from the browser's cache, script state and all.
+  window.addEventListener("pageshow", (e) => e.persisted && refresh());
 
   // A bug or a GitHub page change should show up once in the toast, not as an error on every DOM change.
   async function safeRun(options) {
